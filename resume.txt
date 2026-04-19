@@ -1,0 +1,65 @@
+SUMRIT ARORA
++91 8920595495 , sumritarora.512@gmail.com , Ghaziabad, Uttar Pradesh Linked in , Github , Portfolio
+
+INTRO
+ 
+As a passionate and innovative full stack developer with more than 3+ years of experience, I excel in crafting efficient and scalable solutions. My logical thinking, technical prowess, and problem-solving skills allow me to thrive in collaborative environments. I'm committed to delivering high-quality results and continuously expanding my knowledge to stay ahead of industry trends.
+SKILLS
+Languages: Java, C, C++, Javascript, HTML, CSS, Solidity, Rust
+Frameworks / Libraries : React, NEXT JS, Express Js, Node Js, Hyperledger, Ether Js, React Native
+Database : Mongo DB , SQL
+DevOps / Clouds: AWS, Azure
+Blockchains : Binance, Ethereum, Tron, Solana, Hyperledger
+
+ 
+PROFESSIONAL EXPERIENCE
+COHOMOLOGY LABS ( Bengaluru, Karnataka) Full Stack Developer Intern
+ 
+
+
+Feb 2022 - Aug 2022
+ 
+Developed and deployed Smartcontracts on Solana blockchain using rust, Ethereum and Aurora Blockchain using Solidity.
+Build REST APIs in Springboot using Java.
+
+ 
+iSHA TECHNOLOGY SOLUTION PVT. LTD. (Noida, U.P.)
+Full Stack Developer
+ 
+Aug 2022 - Feb 2023
+ 
+Developed full-stack Web3 apps using React, Node.js, and Solidity, deploying them on Azure.
+Built and audited secure smart contracts & tokens, resolving technical challenges for scalable dApps.
+Collaborated with cross-functional teams to design, optimize, and deploy blockchain solutions.
+ 
+MNB Soft Solutions Pvt. Ltd ( Noida, U.P.) Full Stack Developer
+ 
+Feb 2023 - Present
+ 
+Led team in building CEX/DEX platforms from scratch on Ethereum, Tron & Binance chains Developed & deployed smart contracts/tokens while troubleshooting daily blockchain challenges
+Architected AWS-hosted Web3 solutions for secure, scalable exchange applications
+
+ 
+EDUCATION
+10 th, Kendriya Vidyalaya K.N.N ( GZB) CBSE ( General Subjects)
+9.0 / 10 CGPA
+12 th , Kendriya Vidyalaya K.N.N ( GZB ) CBSE ( Science with CS)
+89 % / 100 %
+Bachelor of Technology , HRIT (GZB , UP) AKTU ( CSE )
+8.05 / 10
+ 
+
+
+May 2015 - May 2016
+
+May 2017 - May 2018
+
+Aug 2018 - Aug 2022
+ 
+
+ 
+CERTIFICATES
+Netcamp certification in Computer Networking , Android, and Web Development
+ 
+
+May 2019 - July 2019

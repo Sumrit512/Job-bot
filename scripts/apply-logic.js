@@ -225,13 +225,48 @@ async function answerFormQuestions(page, prefs) {
     let allFoundElements = [];
 
     for (const frame of frames) {
-      const isVisible = await frame.locator('input, select, textarea').first().isVisible().catch(() => false);
-      if (!isVisible && frames.length > 1) continue; // Skip hidden frames
+      const isMainFrame = frame.parentFrame() === null;
+      let hasVisibleElements = false;
+      if (!isMainFrame) {
+        hasVisibleElements = await frame.locator('input:not([type="hidden"]), select, textarea').evaluateAll(els => 
+          els.some(el => {
+            const style = window.getComputedStyle(el);
+            if (style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null) return true;
+            // Check for visually hidden radio/checkbox in visible containers
+            if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
+              let currentParent = el.parentElement;
+              let parentHidden = false;
+              while (currentParent && currentParent !== document.body) {
+                const parentStyle = window.getComputedStyle(currentParent);
+                if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+                  parentHidden = true;
+                  break;
+                }
+                currentParent = currentParent.parentElement;
+              }
+              if (!parentHidden) return true;
+            }
+            return false;
+          })
+        ).catch(() => false);
+      }
+      if (!isMainFrame && !hasVisibleElements) continue; // Skip hidden sub-frames
 
       const elements = await frame.evaluate(() => {
         const findQuestionText = (el) => {
           let text = "";
-          if (el.getAttribute('aria-label')) text = el.getAttribute('aria-label');
+          
+          // For radio and checkbox, retrieve the legend or form group question rather than the option value
+          if (el.type === 'radio' || el.type === 'checkbox') {
+            const container = el.closest('fieldset, .fb-dash-form-element, .jobs-easy-apply-form-element, .fb-dash-form-section, .jobs-easy-apply-form-section__grouping');
+            if (container) {
+              const legend = container.querySelector('legend, .fb-dash-form-element__label, .fb-dash-form-element__label-title, [class*="label-title"]');
+              if (legend) text = legend.innerText;
+              if (!text) text = container.innerText; // Fallback to container text
+            }
+          }
+
+          if (!text && el.getAttribute('aria-label')) text = el.getAttribute('aria-label');
           if (!text && el.getAttribute('placeholder')) text = el.getAttribute('placeholder');
           if (!text && el.getAttribute('aria-labelledby')) {
             const labelEl = document.getElementById(el.getAttribute('aria-labelledby'));
@@ -271,7 +306,24 @@ async function answerFormQuestions(page, prefs) {
             const qtext = findQuestionText(el);
             // Check for visibility (basic check)
             const style = window.getComputedStyle(el);
-            const isHidden = style.display === 'none' || style.visibility === 'hidden' || el.offsetParent === null;
+            let isHidden = style.display === 'none' || style.visibility === 'hidden' || el.offsetParent === null;
+            
+            // Special handling for radio/checkbox: they might be visually hidden but their parent container is visible
+            if (isHidden && (el.type === 'radio' || el.type === 'checkbox')) {
+              let currentParent = el.parentElement;
+              let parentHidden = false;
+              while (currentParent && currentParent !== document.body) {
+                const parentStyle = window.getComputedStyle(currentParent);
+                if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+                  parentHidden = true;
+                  break;
+                }
+                currentParent = currentParent.parentElement;
+              }
+              if (!parentHidden) {
+                isHidden = false;
+              }
+            }
             
             // Ignore site header/footer search bars, layout toggles, and VideoJS elements
             const isGlobalSearch = el.closest('#ni-gnb-searchbar, .nI-gNb-sb__main, .nI-gNb-sb, .global-navbar, header');
@@ -283,6 +335,13 @@ async function answerFormQuestions(page, prefs) {
             // Skip "Follow company" checkbox, we manually handle unchecking it before submit
             if (el.id?.includes("follow-company") || (qtext.includes("follow") && qtext.includes("stay up to date"))) return;
 
+            let optionLabel = "";
+            if (['radio', 'checkbox'].includes(el.type)) {
+              const labelEl = document.querySelector(`label[for="${el.id.replace(/:/g, '\\:')}"]`);
+              optionLabel = labelEl ? labelEl.innerText : (el.parentElement?.innerText || "");
+              optionLabel = optionLabel.toLowerCase().trim();
+            }
+
             result.push({ 
               tagName: el.tagName,
               id: el.id, 
@@ -293,7 +352,7 @@ async function answerFormQuestions(page, prefs) {
               selectedIndex: el.selectedIndex,
               checked: el.checked,
               type: el.type,
-              label: (['radio', 'checkbox'].includes(el.type)) ? (el.parentElement?.innerText || "").toLowerCase().trim() : ""
+              label: optionLabel
             });
           });
 
@@ -456,9 +515,9 @@ async function answerFormQuestions(page, prefs) {
       // 3. Handle Radio & Checkbox
       if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox') && !el.checked) {
         let target = null;
-        if (el.text.includes('have') || el.text.includes('experience') || el.text.includes('comfortable') || el.text.includes('authorized') || el.text.includes('legally') || el.text.includes('join') || el.text.includes('period') || el.text.includes('start') || el.text.includes('availab') || el.text.includes('declare') || el.text.includes('agree') || el.text.includes('consent') || el.text.includes('privacy')) {
+        if (el.text.includes('have') || el.text.includes('experience') || el.text.includes('comfortable') || el.text.includes('authorized') || el.text.includes('legally') || el.text.includes('join') || el.text.includes('period') || el.text.includes('start') || el.text.includes('availab') || el.text.includes('declare') || el.text.includes('agree') || el.text.includes('consent') || el.text.includes('privacy') || el.text.includes('background check') || el.text.includes('contract') || el.text.includes('willing') || el.text.includes('comfortable') || el.text.includes('interest')) {
           target = "yes";
-        } else if (el.text.includes('sponsorship') || el.text.includes('visa')) {
+        } else if (el.text.includes('sponsorship') || el.text.includes('visa') || el.text.includes('h1b')) {
           target = "no";
         }
         
@@ -696,25 +755,51 @@ async function autoApply(page, jobUrl, resumePath, prefs) {
         } catch (e) {}
       }
 
-      // 4. Find Navigation Buttons
-      const submitSelectors = [
+      // 4. Find Navigation Buttons (scoped to active modal/dialog to avoid background matching)
+      const containerSelector = '.jobs-easy-apply-modal, [role="dialog"], .chatbot_Overlay, .side-drawer, .drawer-wrapper, .modal-content, form';
+      
+      const submitSelectorsScoped = [
         'button:has-text("Submit application")', 'button:has-text("Submit")', 
-        'button:has-text("Apply now")', 'button:has-text("Finish")',
-        'button#submit', 'button[aria-label*="Submit"]'
-      ];
-      const nextSelectors = [
+        'button:has-text("Finish")', 'button#submit', 'button[aria-label*="Submit"]'
+      ].map(s => `${containerSelector} ${s}`).join(', ');
+
+      const nextSelectorsScoped = [
         'button:has-text("Next")', 'button:has-text("Continue")', 
         'button:has-text("Review")', 'button[aria-label*="Next"]',
         'button[aria-label*="Continue"]', '#continue-button'
-      ];
-      const doneSelectors = [
+      ].map(s => `${containerSelector} ${s}`).join(', ');
+
+      const doneSelectorsScoped = [
         'button:has-text("Done")', 'button[aria-label="Dismiss"]', 
         '.post-apply-icon', 'h2:has-text("Application sent")'
-      ];
+      ].map(s => `${containerSelector} ${s}`).join(', ');
 
-      const submitButton = page.locator(submitSelectors.join(', ')).first();
-      const nextButton = page.locator(nextSelectors.join(', ')).first();
-      const doneButton = page.locator(doneSelectors.join(', ')).first();
+      let submitButton = page.locator(submitSelectorsScoped).first();
+      let nextButton = page.locator(nextSelectorsScoped).first();
+      let doneButton = page.locator(doneSelectorsScoped).first();
+
+      // Fall back to unscoped selectors if no scoped buttons are visible (excluding background "Apply now" triggers)
+      if (!(await submitButton.isVisible()) && !(await nextButton.isVisible()) && !(await doneButton.isVisible())) {
+        const submitSelectorsUnscoped = [
+          'button:has-text("Submit application")', 'button:has-text("Submit")', 
+          'button:has-text("Finish")', 'button#submit', 'button[aria-label*="Submit"]'
+        ].join(', ');
+        
+        const nextSelectorsUnscoped = [
+          'button:has-text("Next")', 'button:has-text("Continue")', 
+          'button:has-text("Review")', 'button[aria-label*="Next"]',
+          'button[aria-label*="Continue"]', '#continue-button'
+        ].join(', ');
+
+        const doneSelectorsUnscoped = [
+          'button:has-text("Done")', 'button[aria-label="Dismiss"]', 
+          '.post-apply-icon', 'h2:has-text("Application sent")'
+        ].join(', ');
+
+        submitButton = page.locator(submitSelectorsUnscoped).first();
+        nextButton = page.locator(nextSelectorsUnscoped).first();
+        doneButton = page.locator(doneSelectorsUnscoped).first();
+      }
 
       let currentButton = "";
       if (await submitButton.isVisible()) currentButton = "Submit";

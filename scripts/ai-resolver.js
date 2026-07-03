@@ -124,8 +124,87 @@ async function resolveQuestion(questionText, profile, tagName = 'input') {
     return answer;
   } catch (err) {
     console.error("❌ AI Resolver Error:", err.message);
-    return null;
+    console.log("⚠️ Groq API failed. Using local rule-based fallback...");
+    return localFallbackResolve(questionText, profile, tagName);
   }
+}
+
+/**
+ * Fallback resolver using heuristics and user profile context when the LLM is unavailable.
+ */
+function localFallbackResolve(questionText, profile, tagName) {
+  const text = questionText.toLowerCase().trim();
+
+  // 1. Notice period / availability / start date
+  if (text.includes("notice") || text.includes("start") || text.includes("availab") || text.includes("join") || text.includes("how soon")) {
+    if (text.includes("day") || text.includes("week") || text.includes("month") || text.includes("number")) {
+      return "0";
+    }
+    return "Immediate";
+  }
+
+  // 2. Visa / H1B / Sponsorship
+  if (text.includes("sponsorship") || text.includes("visa") || text.includes("h1b") || text.includes("permit") || text.includes("citizenship")) {
+    // Return Yes if profile requires sponsorship, otherwise No (default candidate doesn't need sponsorship)
+    return profile.visaSponsorship ? "Yes" : "No";
+  }
+
+  // 3. Authorization / Eligibility
+  if (text.includes("authorized") || text.includes("citizen") || text.includes("legal") || text.includes("work in") || text.includes("legally")) {
+    return profile.workAuthorization ? "Yes" : "No";
+  }
+
+  // 4. Agreement / Consent / Background Check
+  if (text.includes("agree") || text.includes("consent") || text.includes("declare") || text.includes("background check") || text.includes("privacy") || text.includes("confirm")) {
+    return "Yes";
+  }
+
+  // 5. Demographics (Gender, Ethnicity, Veteran, Disability)
+  if (text.includes("gender") || text.includes("sex")) {
+    return profile.gender || "Decline to self-identify";
+  }
+  if (text.includes("ethnicity") || text.includes("race")) {
+    return profile.ethnicity || "Decline to self-identify";
+  }
+  if (text.includes("veteran")) {
+    return profile.veteranStatus || "No";
+  }
+  if (text.includes("disability") || text.includes("handicap")) {
+    return profile.disabilityStatus || "No";
+  }
+
+  // 6. Technology skills / Years of experience
+  // If the question is short (often just a skill name e.g. "React.JS") or contains terms related to experience
+  const words = text.split(/\s+/);
+  const isProbablySkill = text.length < 40 && !text.includes("?") && !words.some(w => ["what", "why", "where", "how", "who", "when", "describe", "explain", "please"].includes(w));
+  
+  const isSkillQuestion = isProbablySkill || (
+    text.includes("react") || text.includes("typescript") || text.includes("javascript") || 
+    text.includes("playwright") || text.includes("aws") || text.includes("node") || 
+    text.includes("python") || text.includes("css") || text.includes("html") || 
+    text.includes("frontend") || text.includes("backend") || text.includes("developer") ||
+    text.includes("engineer") || text.includes("database") || text.includes("sql") ||
+    text.includes("git") || text.includes("docker") || text.includes("kubernetes") ||
+    text.includes("programming") || text.includes("coding") || text.includes("development")
+  );
+  
+  if (text.includes("year") || text.includes("experience") || text.includes("how long") || isSkillQuestion) {
+    // Return years of experience as a string digit
+    return String(profile.yearsOfExperience || 4);
+  }
+
+  // 7. General Yes/No questions
+  if (text.includes("do you") || text.includes("have you") || text.includes("are you") || text.includes("can you")) {
+    return "Yes";
+  }
+
+  // 8. General numeric questions
+  if (text.includes("how many") || text.includes("number of") || text.includes("count")) {
+    return "3";
+  }
+
+  // Default fallback
+  return "Yes";
 }
 
 module.exports = { resolveQuestion };

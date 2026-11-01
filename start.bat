@@ -1,0 +1,3 @@
+@echo off
+echo Starting Automatic Job Applier...
+node scripts/start-all.js

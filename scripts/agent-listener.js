@@ -3,21 +3,41 @@ require("dotenv").config({ path: ".env.local" });
 const { runAutomation } = require("./run-automation");
 const { applyToAllPending } = require("./auto-apply-all");
 
-const agentKey = process.env.AGENT_KEY;
+let agentKey = process.env.AGENT_KEY;
+let client = null;
+let isBusy = false;
 
-if (!agentKey) {
-  console.error("❌ AGENT_KEY not found in .env.local");
-  console.error("Please copy your Agent Key from the web dashboard and add it to .env.local:");
-  console.error("AGENT_KEY=your_key_here");
-  process.exit(1);
+function initClient() {
+  if (process.env.NEXT_PUBLIC_CONVEX_URL) {
+    client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
+  }
 }
 
-const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
-
-let isBusy = false;
+function refreshEnv() {
+  try {
+    require("dotenv").config({ path: ".env.local", override: true });
+    agentKey = process.env.AGENT_KEY;
+    if (!client && process.env.NEXT_PUBLIC_CONVEX_URL) {
+      initClient();
+    }
+  } catch (e) {}
+}
 
 async function pollForCommands() {
   if (isBusy) return;
+
+  if (!agentKey) {
+    refreshEnv();
+    if (!agentKey) {
+      return; // Still waiting for key to be populated
+    }
+    console.log(`✅ AGENT_KEY detected (${agentKey.substring(0, 6)}...). Connecting agent listener...`);
+  }
+
+  if (!client) {
+    initClient();
+    if (!client) return;
+  }
 
   try {
     const status = await client.query("agent:getStatus", { agentKey });
@@ -40,13 +60,20 @@ async function pollForCommands() {
       isBusy = false;
     }
   } catch (e) {
-    console.error("Polling error:", e.message);
+    console.error("Agent polling error:", e.message);
   }
 }
 
-console.log(`👂 Agent listening for commands (Key: ${agentKey.substring(0, 6)}...)`);
+// Initial status message
+if (agentKey) {
+  initClient();
+  console.log(`👂 Agent listening for commands (Key: ${agentKey.substring(0, 6)}...)`);
+} else {
+  console.log("⏳ AGENT_KEY not found in .env.local yet.");
+  console.log("👉 Open http://localhost:3000 to configure your profile and obtain your Agent Key.");
+  console.log("   The agent will automatically start as soon as AGENT_KEY is added to .env.local.");
+}
 console.log("Press Ctrl+C to stop.");
 
 // Poll every 5 seconds
 setInterval(pollForCommands, 5000);
-

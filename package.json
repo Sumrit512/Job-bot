@@ -4,9 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/start-all.js",
+    "start": "node scripts/start-all.js",
+    "dev:all": "node scripts/start-all.js",
+    "dev:web": "next dev",
+    "dev:convex": "convex dev",
+    "dev:agent": "node scripts/agent-listener.js",
     "build": "next build",
-    "start": "next start",
+    "start:web": "next start",
     "lint": "next lint",
     "convex": "convex dev"
   },
@@ -33,6 +38,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "autoprefixer": "^10.4.27",
+    "concurrently": "^10.0.6",
     "eslint": "^10.1.0",
     "eslint-config-next": "^16.2.1",
     "postcss": "^8.5.8",

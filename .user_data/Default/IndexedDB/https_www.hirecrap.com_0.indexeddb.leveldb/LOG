@@ -1,7 +1,0 @@
-2026/04/11-16:23:38.534 6498 Reusing MANIFEST D:\interesting\automatic job applier\.user_data\Default\IndexedDB\https_www.hirecrap.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/04/11-16:23:38.540 6498 Recovering log #4
-2026/04/11-16:23:38.540 6498 Reusing old log D:\interesting\automatic job applier\.user_data\Default\IndexedDB\https_www.hirecrap.com_0.indexeddb.leveldb/000004.log 
-2026/04/11-16:23:38.566 2480 Level-0 table #8: started
-2026/04/11-16:23:38.573 2480 Level-0 table #8: 1634 bytes OK
-2026/04/11-16:23:38.575 2480 Delete type=0 #4
-2026/04/11-16:23:38.575 6498 Manual compaction at level-0 from '\x00\x03\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x04\x00\x00\x00' @ 0 : 0; will stop at (end)

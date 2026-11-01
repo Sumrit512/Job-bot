@@ -70,16 +70,16 @@ class ChatGPTController {
 
     if (!isPromptVisible) {
       console.log("\n⚠️  ChatGPT verification or login required in the browser!");
-      console.log("👉 Please switch to the opened ChatGPT browser tab, complete any login/Cloudflare check,");
-      console.log("   and then press ENTER here once the ChatGPT prompt bar is visible.");
-      await waitForKey("Press ENTER after ChatGPT is loaded and ready...");
-      
-      // Wait for input to be visible
-      try {
-        await this.page.locator(inputSelector).first().waitFor({ state: "visible", timeout: 30000 });
-        console.log("✅ ChatGPT prompt input confirmed ready!");
-      } catch (e) {
-        console.warn("⚠️ Warning: Could not detect ChatGPT prompt bar automatically. Proceeding anyway.");
+      console.log("👉 Please switch to the opened ChatGPT browser tab and complete any login/Cloudflare check.");
+      console.log("   (Auto-detecting... will proceed automatically as soon as the prompt input is ready)");
+
+      for (let sec = 0; sec < 30; sec++) {
+        await this.page.waitForTimeout(1000);
+        isPromptVisible = await this.page.locator(inputSelector).first().isVisible().catch(() => false);
+        if (isPromptVisible) {
+          console.log("✅ ChatGPT prompt input confirmed ready!");
+          break;
+        }
       }
     } else {
       console.log("✅ ChatGPT session is active and ready!");

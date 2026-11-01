@@ -159,34 +159,34 @@ async function scrapeInternshala(role, location) {
     const url = `https://internshala.com/jobs/${slug}-jobs/`;
     console.log(`🌐 Navigating to Internshala URL: ${url}`);
     
-    await page.goto(url, { waitUntil: "load", timeout: 60000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(2500);
     
     // Close potential popups
     try {
-      const closeBtn = page.locator('.close_registration, #close_popup, .ic-24-cross').first();
-      if (await closeBtn.isVisible({ timeout: 5000 })) {
+      const closeBtn = page.locator('.close_registration, #close_popup, .ic-24-cross, #close_icon').first();
+      if (await closeBtn.isVisible({ timeout: 3000 })) {
         await closeBtn.click();
       }
     } catch (e) {}
 
     // Wait for at least one job card to appear
-    await page.waitForSelector('.job-title-href', { timeout: 10000 }).catch(() => {
-      console.log("⚠️ No jobs found on page or slow loading.");
+    await page.waitForSelector('.individual_internship, a[href*="/job/detail/"]', { timeout: 10000 }).catch(() => {
+      console.log("⚠️ Slow loading on Internshala page.");
     });
 
     const jobs = await page.evaluate(() => {
       const results = [];
-      // Targeting both common card containers
-      const cards = document.querySelectorAll('.individual_internship, .job-container, .container-fluid-custom');
+      const cards = document.querySelectorAll('.individual_internship, .job-container, [id^="individual_internship_"]');
       cards.forEach(card => {
-        const titleEl = card.querySelector('.job-title-href');
-        const compEl = card.querySelector('.company-name, .company_and_premium p');
-        const locEl = card.querySelector('#location_names, .location_names, .location_link');
+        const titleEl = card.querySelector('a[href*="/job/detail/"], .job-title-href, .heading_4_5 a');
+        const compEl = card.querySelector('.company_name a, .company-name a, .company_name, .company-name, .company_and_premium a');
+        const locEl = card.querySelector('.locations, .location_names, #location_names, a[href*="jobs-in-"]');
 
         if (titleEl && compEl) {
           results.push({
             title: titleEl.innerText.trim(),
-            company: compEl.innerText.trim(),
+            company: compEl.innerText.trim().split('\n')[0].trim(),
             location: locEl ? locEl.innerText.trim() : "Remote",
             url: titleEl.href.split('?')[0],
             source: "Internshala",
@@ -209,7 +209,6 @@ async function scrapeInternshala(role, location) {
 
 async function scrapeLinkedIn(role, location) {
   console.log(`🔍 Searching LinkedIn for ${role} in ${location}...`);
-  // Existing logic...
 
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -221,40 +220,53 @@ async function scrapeLinkedIn(role, location) {
 
   try {
     const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}`;
-    await page.goto(searchUrl, { waitUntil: "load", timeout: 60000 });
+    await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForTimeout(3000);
 
-    // Handle potential login/cookie wall
-    // Check for "Sign in" buttons or absence of profile nav
-    const isLoggedIn = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me');
-    if (!isLoggedIn || page.url().includes("login")) {
-      console.log("\n⚠️  NOT LOGGED IN! ⚠️");
-      console.log("1. Go to the opened browser window.");
-      console.log("2. Log in to your LinkedIn account.");
-      console.log("3. Come back here and press ENTER.");
-      await waitForKey();
-      console.log("✅ Continuing search...");
-      await page.waitForTimeout(2000);
+    // Auto-detect login: check if already logged in
+    let isLoggedIn = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me, nav.global-nav').catch(() => false);
+    
+    if (!isLoggedIn || page.url().includes("login") || page.url().includes("authwall")) {
+      console.log("\n⚠️  LinkedIn Login Required for full job search.");
+      console.log("👉 Please log in to your LinkedIn account in the browser window.");
+      console.log("   (Auto-detecting login for 25s... will proceed automatically once logged in)");
+
+      for (let sec = 0; sec < 25; sec++) {
+        await page.waitForTimeout(1000);
+        isLoggedIn = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me, nav.global-nav, a[href*="/feed/"]').catch(() => false);
+        if (isLoggedIn) {
+          console.log("✅ LinkedIn login confirmed! Continuing search...");
+          break;
+        }
+        // Also check if public job results are visible
+        const hasCards = await page.locator('.jobs-search__results-list li, .base-card, .base-search-card, li[data-occludable-job-id]').count().catch(() => 0);
+        if (hasCards > 0 && !page.url().includes("login")) {
+          console.log("ℹ️ Public search results visible. Continuing...");
+          break;
+        }
+      }
+
+      if (!isLoggedIn && (page.url().includes("login") || page.url().includes("authwall"))) {
+        console.log("ℹ️ LinkedIn login not completed. Checking public guest search...");
+        const guestSearchUrl = `https://www.linkedin.com/jobs/search?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}`;
+        await page.goto(guestSearchUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+        await page.waitForTimeout(3000);
+      }
+    } else {
+      console.log("✅ Already logged in to LinkedIn!");
     }
 
     // Wait for the results to load
     console.log("Waiting for results...");
-    // 1. Try to click "Easy Apply" filter if available
-    console.log("Applying 'Easy Apply' filter...");
+    // Try to click "Easy Apply" filter if available
     try {
-      // Look for the specific Easy Apply toggle/filter button
       const easyApplyBtn = page.locator('button.artdeco-pill:has-text("Easy Apply"), button[aria-label="Easy Apply filter"]').first();
-      if (await easyApplyBtn.isVisible()) {
+      if (await easyApplyBtn.isVisible({ timeout: 3000 })) {
         await easyApplyBtn.click();
         console.log("🖱️ Clicked Easy Apply filter!");
-        await page.waitForTimeout(4000); // Wait for results to refresh
-      } else {
-        console.log("⚠️ Could not find Easy Apply button automatically.");
-        console.log("Please click the 'Easy Apply' filter in the browser if you want only automated jobs.");
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(3000);
       }
-    } catch (e) {
-      console.log("ℹ️ Filter error:", e.message);
-    }
+    } catch (e) {}
 
     const allFoundJobs = [];
 

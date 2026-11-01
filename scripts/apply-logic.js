@@ -674,9 +674,25 @@ async function checkAllLogins(page) {
 
       if (!loggedIn) {
         console.log(`\n⚠️  NOT LOGGED IN TO ${p.name.toUpperCase()}! ⚠️`);
-        console.log(`Please log in to ${p.name} in the browser window and then press ENTER here.`);
-        await waitForKey();
-        console.log(`✅ ${p.name} login confirmed.`);
+        console.log(`👉 Please log in to ${p.name} in the browser window.`);
+        console.log(`   (Auto-detecting login... will proceed automatically once detected)`);
+
+        for (let sec = 0; sec < 30; sec++) {
+          await page.waitForTimeout(1000);
+          for (const marker of p.markers) {
+            if (await page.isVisible(marker).catch(() => false)) {
+              loggedIn = true;
+              break;
+            }
+          }
+          if (loggedIn) break;
+        }
+
+        if (loggedIn) {
+          console.log(`✅ ${p.name} login confirmed!`);
+        } else {
+          console.log(`ℹ️ Login not detected for ${p.name}. Proceeding to next check...`);
+        }
       } else {
         console.log(`✅ Already logged in to ${p.name}.`);
       }
@@ -714,11 +730,23 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
 
       if (!loggedIn && !jobUrl.includes('login')) {
         console.log(`\n⚠️  NOT LOGGED IN TO ${platform.toUpperCase()}! ⚠️`);
-        console.log("Please log in in the opened browser window and then press ENTER.");
-        await waitForKey();
+        console.log("👉 Please log in in the opened browser window.");
+        console.log("   (Auto-detecting login... will proceed automatically)");
+
+        for (let sec = 0; sec < 30; sec++) {
+          await page.waitForTimeout(1000);
+          for (const selector of loginMarkers) {
+            if (await page.isVisible(selector).catch(() => false)) {
+              loggedIn = true;
+              break;
+            }
+          }
+          if (loggedIn) break;
+        }
+
         page.sessionAuthenticated = true;
         console.log("🚀 Continuing...");
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(1000);
       } else {
         page.sessionAuthenticated = true;
       }

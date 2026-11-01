@@ -1,6 +1,10 @@
 const { ConvexHttpClient } = require("convex/browser");
 const { autoApply, checkAllLogins } = require("./apply-logic");
 const { ChatGPTController } = require("./chatgpt-browser");
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
+const { chromium } = require("playwright");
 require("dotenv").config({ path: ".env.local" });
 
 const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
@@ -37,8 +41,6 @@ async function applyToAllPending(agentKeyInput) {
 
   if (resumeUrl) {
     console.log("📂 Downloading your resume from the cloud...");
-    const fs = require('fs');
-    const https = require('https');
     const file = fs.createWriteStream(resumePath);
     await new Promise((resolve, reject) => {
       https.get(resumeUrl, (response) => {
@@ -48,20 +50,54 @@ async function applyToAllPending(agentKeyInput) {
     });
   }
 
-  const { chromium } = require("playwright");
-  const path = require("path");
   const userDataDir = path.join(__dirname, "../.user_data");
+  let context = null;
+  let page = null;
+  let chatgpt = null;
 
-  let context, page, chatgpt;
+  async function closeBrowser() {
+    if (context) {
+      try {
+        await context.close();
+      } catch (e) {}
+      context = null;
+      page = null;
+      chatgpt = null;
+    }
+    // Give Windows OS time to release file locks on .user_data
+    await new Promise(r => setTimeout(r, 1200));
+  }
 
   async function startBrowser() {
+    await closeBrowser();
+
+    // Clean up stale lock files from previous crashes if any
+    try {
+      const lockFile = path.join(userDataDir, "SingletonLock");
+      const socketFile = path.join(userDataDir, "SingletonSocket");
+      const cookieFile = path.join(userDataDir, "SingletonCookie");
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+      if (fs.existsSync(socketFile)) fs.unlinkSync(socketFile);
+      if (fs.existsSync(cookieFile)) fs.unlinkSync(cookieFile);
+    } catch (e) {}
+
     context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
-      args: ["--disable-blink-features=AutomationControlled"]
+      args: [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage"
+      ]
     });
-    page = await context.newPage();
+
+    // Reuse default page instead of opening extra blank tabs
+    const pages = context.pages();
+    page = pages.length > 0 ? pages[0] : await context.newPage();
+
     chatgpt = new ChatGPTController(context);
-    await chatgpt.init();
+    await chatgpt.init().catch(err => {
+      console.warn("ℹ️ ChatGPT initialization notice:", err.message);
+    });
   }
 
   await startBrowser();
@@ -70,7 +106,7 @@ async function applyToAllPending(agentKeyInput) {
   try {
     await checkAllLogins(page);
   } catch (e) {
-    console.error("⚠️ Global login check failed. Proceeding with caution...");
+    console.error("⚠️ Global login check notice:", e.message);
   }
 
   try {
@@ -79,15 +115,17 @@ async function applyToAllPending(agentKeyInput) {
       console.log(`💼 Processing: ${job.title} at ${job.company}`);
       console.log(`============================================================`);
       
-      // Ensure browser is still open
-      try {
-        if (!context || !page || page.isClosed()) {
-          console.log("🔄 Browser was closed. Re-opening...");
+      // Ensure browser is still alive
+      const isAlive = context && page && !page.isClosed();
+      if (!isAlive) {
+        console.log("🔄 Browser was closed or lost. Safely re-opening...");
+        try {
+          await startBrowser();
+        } catch (e) {
+          console.error("⚠️ Retrying browser launch in 2s:", e.message);
+          await new Promise(r => setTimeout(r, 2000));
           await startBrowser();
         }
-      } catch (e) {
-        console.log("🔄 Browser error. Re-starting session...");
-        await startBrowser();
       }
 
       try {
@@ -140,30 +178,24 @@ async function applyToAllPending(agentKeyInput) {
           console.log(`ℹ️  Skipped ${job.title}`);
         }
       } catch (e) {
-        console.error(`❌ Failed to apply to ${job.title}:`, e.message);
+        console.error(`❌ Failed processing ${job.title}:`, e.message);
         await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "failed", error: e.message });
         
         if (e.message.includes('browser has been closed') || e.message.includes('Target closed') || e.message.includes('context or browser has been closed')) {
-           console.log("⚠️ Browser session lost. Resetting context...");
-           context = null; 
-           page = null;
+           console.log("⚠️ Browser session closed. Resetting context reference...");
+           await closeBrowser();
         }
       }
     }
   } finally {
-    if (context) await context.close();
+    await closeBrowser();
   }
 
   console.log("\n✨ All pending applications processed!");
 }
-
-
 
 module.exports = { applyToAllPending };
 
 if (require.main === module) {
   applyToAllPending().catch(console.error);
 }
-
-
-

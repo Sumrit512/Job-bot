@@ -46,7 +46,11 @@ class ChatGPTController {
 
     if (!this.page || this.page.isClosed()) {
       this.page = await this.context.newPage();
-      await this.page.goto("https://chatgpt.com", { waitUntil: "domcontentloaded", timeout: 60000 });
+      try {
+        await this.page.goto("https://chatgpt.com", { waitUntil: "domcontentloaded", timeout: 45000 });
+      } catch (err) {
+        console.warn("ℹ️ ChatGPT page loading notice:", err.message);
+      }
     }
 
     await this.ensureReady();

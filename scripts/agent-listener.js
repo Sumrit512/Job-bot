@@ -50,14 +50,18 @@ async function pollForCommands() {
       // Clear the command first so we don't repeat it
       await client.mutation("agent:clearCommand", { agentKey });
 
-      if (cmd === "scrape") {
-        await runAutomation(agentKey);
-      } else if (cmd === "apply") {
-        await applyToAllPending(agentKey);
+      try {
+        if (cmd === "scrape") {
+          await runAutomation(agentKey);
+        } else if (cmd === "apply") {
+          await applyToAllPending(agentKey);
+        }
+      } catch (err) {
+        console.error(`❌ Error running ${cmd}:`, err.message);
+      } finally {
+        console.log("💤 Task completed. Back to idle.");
+        isBusy = false;
       }
-      
-      console.log("💤 Task completed. Back to idle.");
-      isBusy = false;
     }
   } catch (e) {
     console.error("Agent polling error:", e.message);

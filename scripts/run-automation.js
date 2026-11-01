@@ -46,6 +46,8 @@ async function runAutomation(agentKeyInput) {
       console.log(`\n--- Scraping ${platform.name} ---`);
       const platformJobs = await platform.scraper(role, location);
       allJobs.push(...platformJobs);
+      // Give Windows OS time to release file lock on .user_data before next platform
+      await new Promise(r => setTimeout(r, 1500));
     } catch (e) {
       console.error(`❌ Failed to scrape ${platform.name}:`, e.message);
     }

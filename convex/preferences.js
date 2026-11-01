@@ -120,3 +120,55 @@ export const getOrGenerateAgentKey = mutation({
   },
 });
 
+export const saveAnswer = mutation({
+  args: {
+    agentKey: v.optional(v.string()),
+    question: v.string(),
+    answer: v.string(),
+    jobTitle: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getUserId(ctx, args.agentKey);
+    const existing = await ctx.db
+      .query("saved_answers")
+      .withIndex("by_userId_and_question", (q) =>
+        q.eq("userId", userId).eq("question", args.question)
+      )
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        answer: args.answer,
+        jobTitle: args.jobTitle || existing.jobTitle,
+        createdAt: Date.now(),
+      });
+      return existing._id;
+    } else {
+      return await ctx.db.insert("saved_answers", {
+        userId,
+        question: args.question,
+        answer: args.answer,
+        jobTitle: args.jobTitle,
+        createdAt: Date.now(),
+      });
+    }
+  },
+});
+
+export const getSavedAnswer = query({
+  args: {
+    agentKey: v.optional(v.string()),
+    question: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getUserId(ctx, args.agentKey);
+    return await ctx.db
+      .query("saved_answers")
+      .withIndex("by_userId_and_question", (q) =>
+        q.eq("userId", userId).eq("question", args.question)
+      )
+      .first();
+  },
+});
+
+

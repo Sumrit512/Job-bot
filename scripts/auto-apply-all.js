@@ -1,6 +1,6 @@
 const { ConvexHttpClient } = require("convex/browser");
 const { autoApply, checkAllLogins } = require("./apply-logic");
-const { rateResumeMatch } = require("./ai-resolver");
+const { ChatGPTController } = require("./chatgpt-browser");
 require("dotenv").config({ path: ".env.local" });
 
 const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
@@ -25,20 +25,34 @@ async function applyToAllPending(agentKeyInput) {
 
   console.log(`📝 Found ${pendingJobs.length} pending jobs. Starting applications...`);
 
-  // 2. Fetch Preferences and Resume
+  // 2. Fetch Preferences and Resume URL
   const prefs = await client.query("preferences:getPreferences", { agentKey });
   if (!prefs) {
     console.error("❌ No preferences found in Convex. Please save your profile in the web app first.");
     return;
   }
 
+  const resumeUrl = await client.query("files:getResumeUrl", { agentKey });
   const resumePath = "./resume.txt";
+
+  if (resumeUrl) {
+    console.log("📂 Downloading your resume from the cloud...");
+    const fs = require('fs');
+    const https = require('https');
+    const file = fs.createWriteStream(resumePath);
+    await new Promise((resolve, reject) => {
+      https.get(resumeUrl, (response) => {
+        response.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+      }).on('error', (err) => { fs.unlink(resumePath); reject(err); });
+    });
+  }
 
   const { chromium } = require("playwright");
   const path = require("path");
   const userDataDir = path.join(__dirname, "../.user_data");
 
-  let context, page;
+  let context, page, chatgpt;
 
   async function startBrowser() {
     context = await chromium.launchPersistentContext(userDataDir, {
@@ -46,6 +60,8 @@ async function applyToAllPending(agentKeyInput) {
       args: ["--disable-blink-features=AutomationControlled"]
     });
     page = await context.newPage();
+    chatgpt = new ChatGPTController(context);
+    await chatgpt.init();
   }
 
   await startBrowser();
@@ -60,10 +76,9 @@ async function applyToAllPending(agentKeyInput) {
   try {
     for (const job of pendingJobs) {
       console.log(`\n============================================================`);
-      console.log(`🔍 Evaluating: "${job.title}" at "${job.company}"`);
-      console.log(`   URL: ${job.url}`);
+      console.log(`💼 Processing: ${job.title} at ${job.company}`);
       console.log(`============================================================`);
-
+      
       // Ensure browser is still open
       try {
         if (!context || !page || page.isClosed()) {
@@ -76,64 +91,62 @@ async function applyToAllPending(agentKeyInput) {
       }
 
       try {
-        // Pre-fetch job page to extract detailed job description for AI evaluation
-        let jobDescription = "";
-        try {
-          await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 25000 });
-          await page.waitForTimeout(2000);
-          jobDescription = await page.evaluate(() => {
-            const el = document.querySelector('.job-desc, .description, #job-details, .styles_job-desc-container__txpYf, .job-details, article, main');
-            return el ? el.innerText.substring(0, 3500) : document.body.innerText.substring(0, 2500);
-          });
-        } catch (navErr) {
-          console.log(`⚠️ Note: Could not pre-fetch full page text (${navErr.message}). Using job title & company.`);
-        }
+        // Step 1: Open the job page to extract details and verify validity
+        await page.bringToFront();
+        await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+        await page.waitForTimeout(2500);
 
-        // 4. ASK CHATGPT / AI TO RATE RESUME MATCH
-        console.log(`🤖 Passing job role to ChatGPT to rate resume fit...`);
-        const rating = await rateResumeMatch(job.title, job.company, jobDescription, prefs);
-        console.log(`📊 ChatGPT Match Rating: ${rating.score}/100`);
-        console.log(`💬 Explanation: "${rating.reason}"`);
+        const jobDescription = await page.evaluate(() => {
+          const descEl = document.querySelector('.jobs-description__content, .jobs-box__html-content, #job-details, .job-desc-section, .styles_job-desc-container__pv_8h, section.job-desc, .internship_details, .job_description, article');
+          return descEl ? descEl.innerText.substring(0, 3000) : "";
+        });
 
-        // 5. THRESHOLD CHECK (> 90%)
-        if (rating.score < 90) {
-          console.log(`⏭️  Score ${rating.score}/100 is below the 90% threshold. Skipping application.`);
+        // Step 2: Ask ChatGPT Web to rate resume against this job role
+        console.log(`⚖️  Rating resume match with ChatGPT...`);
+        const rating = await chatgpt.rateResume({
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          description: jobDescription
+        }, prefs.resumeText);
+
+        console.log(`📊 Rating Result: Score = ${rating.score}/100`);
+        console.log(`📝 Reason: ${rating.explanation}`);
+
+        // Step 3: Check score threshold (> 90 required to apply)
+        if (rating.score <= 90) {
+          console.log(`⏭️  Resume match score (${rating.score}/100) is <= 90. SKIPPING application.`);
           await client.mutation("jobs:updateJobStatus", {
             agentKey,
             id: job._id,
             status: "skipped",
-            error: `Match Score: ${rating.score}/100 (< 90 threshold). ${rating.reason}`
+            error: `ChatGPT Match Score: ${rating.score}/100 (Threshold > 90 required). ${rating.explanation}`
           });
-          continue; // Move to next job
+          continue;
         }
 
-        console.log(`🎯 Score ${rating.score}/100 exceeds 90% threshold! Proceeding to auto-apply...`);
-
-        // Mark as "applying"
+        console.log(`🎯 Match score (${rating.score}/100) is ABOVE 90! Proceeding to auto-apply...`);
         await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "applying" });
 
-        const success = await autoApply(page, job.url, resumePath, prefs);
+        // Step 4: Run auto-apply with ChatGPT answering non-basic questions
+        await page.bringToFront();
+        const success = await autoApply(page, job.url, resumePath, prefs, chatgpt, job, client, agentKey);
 
         if (success) {
           await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "applied" });
-          console.log(`✅ Successfully applied to ${job.title} at ${job.company}!`);
+          console.log(`✅ Successfully applied to ${job.title}!`);
         } else {
-          await client.mutation("jobs:updateJobStatus", {
-            agentKey,
-            id: job._id,
-            status: "skipped",
-            error: "Application process skipped or could not complete Easy Apply."
-          });
+          await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "skipped" });
           console.log(`ℹ️  Skipped ${job.title}`);
         }
       } catch (e) {
         console.error(`❌ Failed to apply to ${job.title}:`, e.message);
         await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "failed", error: e.message });
-
+        
         if (e.message.includes('browser has been closed') || e.message.includes('Target closed') || e.message.includes('context or browser has been closed')) {
-          console.log("⚠️ Browser session lost. Resetting context...");
-          context = null;
-          page = null;
+           console.log("⚠️ Browser session lost. Resetting context...");
+           context = null; 
+           page = null;
         }
       }
     }
@@ -144,8 +157,13 @@ async function applyToAllPending(agentKeyInput) {
   console.log("\n✨ All pending applications processed!");
 }
 
+
+
 module.exports = { applyToAllPending };
 
 if (require.main === module) {
   applyToAllPending().catch(console.error);
 }
+
+
+

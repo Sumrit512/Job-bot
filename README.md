@@ -14,50 +14,26 @@ npm run dev
 
 *(or simply `npm start`, `node start.js`, or double-click `start.bat` on Windows)*
 
-### 🤖 What it does automatically for you:
-1. **📦 Auto-Installs Dependencies:** Detects if `node_modules` is missing and runs `npm install`.
-2. **📝 Auto-Configures Environment:** Creates `.env.local` from `.env.example` if not found.
-3. **🌐 Auto-Installs Playwright Browser:** Ensures Chromium is installed so scrapers won't fail.
-4. **🔑 Auto-Generates Agent Key:** Generates your multi-tenant `AGENT_KEY` directly from Convex and writes it into `.env.local`.
-5. **📋 Auto-Seeds Your Profile:** If your Convex profile is empty, it automatically parses your `resume.txt` and seeds your name, contact, role, and experience into the database.
-6. **💾 Real-Time Auto-Save:** Automatically persists your form data to Convex as you type, and immediately before triggering job search or applications.
-7. **🎯 AI Resume Match Rating (> 90% Threshold):**
-   - Every job role & description is passed to ChatGPT / AI to evaluate your resume match score (0-100).
-   - If the score is **above 90**, the agent proceeds with applying.
-   - If the score is **below 90**, the agent skips the job with a clear reason in the logs and dashboard.
-8. **🧠 AI Form Question Answering:**
-   - **Basic Personal Info** (Name, Phone, Email, Location, LinkedIn/GitHub/Portfolio) is filled directly from your profile.
-   - **Every other question** (technical, situational, behavioral, dropdown options, radio buttons, checkboxes, recruiter questionnaires) is routed to ChatGPT / AI to select or generate the best tailored response.
-9. **🚀 Runs All Services Concurrently:**
-   - Convex Backend (`npx convex dev`)
-   - Next.js Dashboard (`npx next dev`)
-   - Automation Agent Listener (`node scripts/agent-listener.js`)
-10. **✨ Auto-Opens Your Browser:** As soon as the dashboard is ready, it automatically opens [http://localhost:3000](http://localhost:3000) in your default browser!
-
-Press **`Ctrl + C`** in your terminal at any time to cleanly stop all three services at once.
-
 ---
 
-## ⚙️ Environment Variables
+## 🧠 ChatGPT Web Automation (No APIs)
 
-The project supports both OpenAI ChatGPT and Groq:
+This system communicates directly with ChatGPT via browser automation on **[https://chatgpt.com](https://chatgpt.com)** using your persistent browser session:
 
-```env
-# Convex backend deployment
-CONVEX_DEPLOYMENT=dev:groovy-firefly-266
-NEXT_PUBLIC_CONVEX_URL=https://groovy-firefly-266.convex.cloud
-NEXT_PUBLIC_CONVEX_SITE_URL=https://groovy-firefly-266.convex.site
+1. **🎯 Strict Resume Match Rating (> 90 Score Required):**
+   - For every scanned job, the agent visits the job posting, extracts the requirements, and asks ChatGPT to rate your resume on a scale of **0 to 100**.
+   - If the score is **above 90**, the agent proceeds to apply.
+   - If the score is **90 or below**, the agent skips the job and records the rating reason in the dashboard.
 
-# OpenAI ChatGPT API Key (Optional - if provided, ChatGPT is used for scoring & answers)
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+2. **💬 Direct & Straightforward Form Q&A:**
+   - **Basic Personal Information** (Name, Phone, Email, Address, Links, Current Role) is filled directly from your profile.
+   - **Non-Basic & Screening Questions** (Years of experience in specific frameworks, behavioral questions, custom dropdowns, radio choices) are sent to ChatGPT on the website.
+   - ChatGPT is instructed to provide a direct, straightforward answer with zero conversational filler.
+   - The agent automatically pastes or selects that answer into the form.
 
-# Groq API Key (Pre-configured high-speed fallback / default)
-GROQ_API_KEY=your_groq_api_key
-
-# Agent authorization key (auto-generated)
-AGENT_KEY=ak_...
-```
+3. **💾 Automatic User Data Persistence:**
+   - All profile changes in the dashboard are auto-saved to Convex as you type.
+   - All answers selected or generated during job applications are saved into Convex database (`saved_answers`), keeping your profile context continually up-to-date.
 
 ---
 

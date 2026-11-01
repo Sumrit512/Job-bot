@@ -87,5 +87,14 @@ export default defineSchema({
     command: v.string(), // "idle", "scrape", "apply"
     lastUpdated: v.number(),
   }).index("by_userId", ["userId"]),
+
+  saved_answers: defineTable({
+    userId: v.id("users"),
+    question: v.string(),
+    answer: v.string(),
+    jobTitle: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_userId", ["userId"])
+    .index("by_userId_and_question", ["userId", "question"]),
 });
 

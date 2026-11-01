@@ -113,8 +113,8 @@ export default function Home() {
 
   // Load existing preferences
   useEffect(() => {
-    if (existingPrefs && existingPrefs.length > 0) {
-      const p = existingPrefs[0];
+    const p = Array.isArray(existingPrefs) ? existingPrefs[0] : existingPrefs;
+    if (p) {
       setFullName(p.fullName || "");
       setPhone(p.phone || "");
       setRole(p.role || "");

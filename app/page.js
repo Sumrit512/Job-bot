@@ -88,6 +88,8 @@ export default function Home() {
   const [resumeText, setResumeText] = useState("");
   const [agentKey, setAgentKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("idle"); // "idle", "saving", "saved", "error"
+  const isInitialLoad = useRef(true);
   
 
   const fileInputRef = useRef(null);
@@ -162,8 +164,62 @@ export default function Home() {
       if (p.yearsOfExperience) {
         setExperience(p.yearsOfExperience >= 5 ? "Mid Level" : "Entry Level");
       }
+      setTimeout(() => {
+        isInitialLoad.current = false;
+        setSaveStatus("saved");
+      }, 600);
+    } else {
+      setTimeout(() => {
+        isInitialLoad.current = false;
+      }, 600);
     }
   }, [existingPrefs]);
+
+  const getPayload = () => ({
+    fullName, phone, role, experience, location, linkedinId, githubId, 
+    portfolioUrl, noticePeriod, workAuthorization: workAuth, visaSponsorship, 
+    currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
+    jobType: selectedJobTypes,
+    salaryRange: salary,
+    currentCtc, expectedCtc,
+    yearsOfExperience: parseInt(experience) || 4,
+    experience: experience.toString(), // sync string field with number for compatibility
+    streetAddress, city, state, zipCode, country,
+    gender, ethnicity, veteranStatus, disabilityStatus, pronouns,
+    earliestStartDate, willingToRelocate: !!willingToRelocate,
+    whyThisRole, biggestAchievement,
+    numberOfProjects: parseInt(numberOfProjects) || 0,
+    fitnessFrequency,
+    dob,
+    references: references.filter(r => r.name)
+  });
+
+  const savePreferences = useMutation(api.preferences.savePreferences);
+
+  // Debounced Auto-Save whenever the user edits any form field
+  useEffect(() => {
+    if (isInitialLoad.current) return;
+
+    setSaveStatus("saving");
+    const timer = setTimeout(async () => {
+      try {
+        await savePreferences(getPayload());
+        setSaveStatus("saved");
+      } catch (err) {
+        console.error("Auto-save failed:", err);
+        setSaveStatus("error");
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [
+    fullName, phone, role, experience, location, salary, linkedinId, githubId,
+    portfolioUrl, noticePeriod, workAuth, visaSponsorship, currentCompany, currentTitle,
+    degree, university, gradYear, expectedCtc, currentCtc, selectedJobTypes,
+    streetAddress, city, state, zipCode, country, gender, ethnicity,
+    veteranStatus, disabilityStatus, pronouns, numberOfProjects, fitnessFrequency,
+    dob, earliestStartDate, willingToRelocate, whyThisRole, biggestAchievement, references
+  ]);
 
 
   const toggleJobType = (type) => {
@@ -183,8 +239,6 @@ export default function Home() {
       reader.readAsText(file);
     }
   };
-
-  const savePreferences = useMutation(api.preferences.savePreferences);
 
   const handleUpload = async () => {
     if (!resumeFile && !resumeText) {
@@ -269,8 +323,16 @@ export default function Home() {
         await clearCommand();
         alert("Agent status reset to idle.");
       } else {
+        // Ensure user data is saved immediately before triggering
+        try {
+          await savePreferences(getPayload());
+          setSaveStatus("saved");
+        } catch (saveErr) {
+          console.warn("Auto-save prior to command failed:", saveErr);
+        }
+
         await triggerCommand({ command });
-        alert(`${command.charAt(0).toUpperCase() + command.slice(1)} command sent!`);
+        alert(`${command.charAt(0).toUpperCase() + command.slice(1)} command sent! The agent will evaluate match scores (>90) and auto-apply.`);
       }
     } catch (e) {
       alert("Error triggering command. Is Convex dev running?");
@@ -283,10 +345,22 @@ export default function Home() {
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 py-8">
         <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
-            AI Job Dashboard
-          </h1>
-          <p className="text-slate-400 mt-1">Full profile context for accurate auto-applications.</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
+              AI Job Dashboard
+            </h1>
+            {saveStatus === "saving" && (
+              <span className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                <Loader2 size={12} className="animate-spin" /> Saving...
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+                <CheckCircle2 size={12} /> Auto-saved
+              </span>
+            )}
+          </div>
+          <p className="text-slate-400 mt-1">Full profile context for accurate auto-applications (Threshold: &gt; 90% match).</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button 

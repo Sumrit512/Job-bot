@@ -1,210 +1,376 @@
-const { Groq } = require('groq-sdk');
 const dotenv = require('dotenv');
 const path = require('path');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY
-});
-
 /**
- * Resolves a question using Groq AI based on user profile context.
+ * Universal AI Caller (OpenAI ChatGPT -> Groq fallback)
  */
-async function resolveQuestion(questionText, profile, tagName = 'input') {
-  try {
-    const prompt = `
-      You are an expert career assistant helping a candidate apply for a job.
-      Based on the candidate's Resume and Profile below, answer the specific form question.
-      
-      RESUME TEXT:
-      ${profile.resumeText || "No resume text provided."}
-      
-      USER PROFILE:
-      - Full Name: ${profile.fullName || "Not provided"}
-      - Phone: ${profile.phone || "Not provided"}
-      - Date of Birth: ${profile.dob || "Not provided"}
-      - Current Role: ${profile.currentTitle || profile.role}
-      - Current Company: ${profile.currentCompany || "Not provided"}
-      - Experience Level: ${profile.experience}
-      - Target Location: ${profile.location}
-      - Salary Expectation: ${profile.salaryRange || profile.salary}
-      - Current CTC: ${profile.currentCtc || "Not provided"}
-      - Expected CTC: ${profile.expectedCtc || "Not provided"}
-      - Notice Period: ${profile.noticePeriod || "Not provided"}
-      - Education: ${profile.degree} from ${profile.university} (Grad: ${profile.gradYear})
-      
-      MAILING ADDRESS:
-      - Street: ${profile.streetAddress || "Not provided"}
-      - City/State/Zip: ${profile.city}, ${profile.state} ${profile.zipCode}
-      - Country: ${profile.country || "Not provided"}
-      
-      DEMOGRAPHICS (Optional/EEO):
-      - Gender: ${profile.gender || "Decline to self-identify"}
-      - Ethnicity: ${profile.ethnicity || "Decline to self-identify"}
-      - Veteran: ${profile.veteranStatus || "No"}
-      - Disability: ${profile.disabilityStatus || "No"}
-      - Pronouns: ${profile.pronouns || "Not provided"}
-      
-      TECH STACK & PROFICIENCY:
-      - Assume high proficiency for ALL technologies, tools, and platforms mentioned in the resume or required for this job role.
-      - If asked for years of experience directly for ANY specific tech, tool, language, or framework, ALWAYS provide exactly ${profile.yearsOfExperience || 4} years. Do not reduce the number.
-      
-      CUSTOM METRICS (For tricky or specific form questions):
-      - Total Projects Completed: ${profile.numberOfProjects || "Many"} (If asked for number of projects, apps, products, or third-party APIs integrated, answer around this number or slightly higher).
-      - Fitness / Gym Frequency: ${profile.fitnessFrequency || "Not provided"} (If asked how many days you go to the gym, do fitness exercises, or do yoga/meditation, strictly answer using this text/frequency).
+async function callAI(messages, { temperature = 0.2, jsonMode = false } = {}) {
+  // 1. Try OpenAI if OPENAI_API_KEY is present
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+      const body = {
+        model,
+        messages,
+        temperature,
+        ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+      };
 
-      AVAILABILITY:
-      - Start Date: Immediate (PRIORITY: Always answer any availability question as "Immediate", "0 days", or "Immediately")
-      - Willing to Relocate: ${profile.willingToRelocate ? "Yes" : "No"}
-      
-      MOTIVATION:
-      - Why this role: ${profile.whyThisRole || "Refer to resume/experience."}
-      - Achievement: ${profile.biggestAchievement || "Refer to resume."}
-      
-      PROFESSIONAL LINKS:
-      - GitHub: ${profile.githubId || "Not provided"}
-      - Portfolio: ${profile.portfolioUrl || "Not provided"}
-      - LinkedIn: ${profile.linkedinId || "Not provided"}
-      
-      WORK AUTH:
-      - Authorized: ${profile.workAuthorization ? "Yes" : "No"}
-      - Sponsorship needed: ${profile.visaSponsorship ? "Yes" : "No"}
-      
-      QUESTION:
-      "${questionText}"
-      
-      INSTRUCTIONS:
-      1. Provide ONLY THE RAW VALUE (e.g., 'Sumrit', '4', 'Yes', '1500000').
-      2. No conversational filler, no formatting, no quotes. JUST THE DATA.
-      3. For Dates (like DOB), ALWAYS follow the format requested in the question text or placeholder (e.g., if it says DDMMYYYY, provide 01011995; if it says DD/MM/YYYY, provide 01/01/1995).
-      4. For Numbers (Experience, Salary, Notice Period), follow the specific unit or precision requested.
-      5. If the question asks for "INR" but the profile is in "Lakhs" (e.g., 12.0), and the form expects a full number (e.g., > 100000), convert intelligently.
-      6. For Yes/No or Radio buttons, provide ONLY "Yes", "No", or the specific option name.
-      7. Be flexible: Prioritize the format implied or stated by the question/placeholder over everything else.
-      8. SPECIAL CASE (Availability): If the question is about when you can start, notice period, or availability, ALWAYS provide an answer that indicates "Immediate Availability".
-         - For numeric answers: Provide "0" or "0 days".
-         - For word answers: Provide "Immediate" or "Immediately".
-         - For selection/multiple choice: Choose the option that most closely matches "Available to join immediately".
-      
-      FINAL ANSWER:
-    `;
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
 
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
-      model: "llama-3.1-8b-instant",
-      temperature: 0.1,
-    });
-
-    let answer = chatCompletion.choices[0].message.content.trim();
-    
-    // Clean up "Based on..." or "The answer is..." style filler if it sneaks in
-    if (answer.includes(':')) {
-       // If it has a colon, it's often "Answer: Value" or "Final Answer: Value"
-       const parts = answer.split(':');
-       const lastPart = parts[parts.length - 1].trim();
-       // Only replace if the part before the colon looks like a label
-       if (answer.toLowerCase().includes('answer') || answer.toLowerCase().includes('result')) {
-         answer = lastPart;
-       }
+      if (res.ok) {
+        const data = await res.json();
+        return data.choices[0].message.content.trim();
+      } else {
+        const err = await res.text();
+        console.warn(`[AI] OpenAI API error (${res.status}): ${err}`);
+      }
+    } catch (e) {
+      console.warn(`[AI] OpenAI request failed: ${e.message}`);
     }
-    
-    // Strip quotes and leading/trailing punctuation that LLMs sometimes add
-    answer = answer.replace(/^["']|["']$/g, '').trim();
+  }
 
-    // Final sanity check for "whole number" requirements
-    if (questionText.toLowerCase().includes('whole') || questionText.toLowerCase().includes('integer') || questionText.toLowerCase().includes('day')) {
-      // If it's a numeric value with a decimal .0, strip it
-      if (/^\d+\.0+$/.test(answer)) {
-        answer = answer.split('.')[0];
+  // 2. Try Groq if GROQ_API_KEY is present
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const { Groq } = require('groq-sdk');
+      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      const model = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+
+      const completion = await groq.chat.completions.create({
+        messages,
+        model,
+        temperature,
+        ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+      });
+
+      return completion.choices[0].message.content.trim();
+    } catch (e) {
+      // Fallback model on Groq if 120b is busy
+      try {
+        const { Groq } = require('groq-sdk');
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+        const completion = await groq.chat.completions.create({
+          messages,
+          model: "openai/gpt-oss-20b",
+          temperature,
+          ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+        });
+        return completion.choices[0].message.content.trim();
+      } catch (e2) {
+        console.warn(`[AI] Groq request failed: ${e2.message}`);
       }
     }
+  }
 
-    console.log(`🧠 AI Resolver: Answered "${questionText.substring(0, 40)}..." with "${answer}"`);
-    return answer;
+  throw new Error("No AI API keys configured or all AI calls failed.");
+}
+
+/**
+ * Checks if a question is a basic personal information field.
+ * Returns the field key in profile if matched, or null if it should be answered by AI.
+ */
+function isBasicPersonalInfo(questionText) {
+  const t = (questionText || "").toLowerCase().trim();
+
+  // Full Name, First Name, Last Name
+  if (t.includes("full name") || t.includes("first name") || t.includes("last name") || t.includes("your name") || t === "name") {
+    return "fullName";
+  }
+  // Phone / Mobile
+  if (t.includes("phone") || t.includes("mobile") || t.includes("contact number") || t.includes("cell")) {
+    return "phone";
+  }
+  // Email
+  if (t.includes("email") || t.includes("e-mail") || t === "mail") {
+    return "email";
+  }
+  // Street Address
+  if (t.includes("street address") || t.includes("address line 1") || t.includes("address line 2")) {
+    return "streetAddress";
+  }
+  // City
+  if (t.includes("city") && !t.includes("relocate") && !t.includes("willing")) {
+    return "city";
+  }
+  // State / Province
+  if (t.includes("state") || t.includes("province")) {
+    return "state";
+  }
+  // Zip / Postal Code
+  if (t.includes("zip") || t.includes("postal") || t.includes("pin code") || t.includes("pincode")) {
+    return "zipCode";
+  }
+  // Country
+  if (t.includes("country") && !t.includes("authorized") && !t.includes("eligible") && !t.includes("visa")) {
+    return "country";
+  }
+  // LinkedIn
+  if (t.includes("linkedin")) {
+    return "linkedinId";
+  }
+  // GitHub
+  if (t.includes("github")) {
+    return "githubId";
+  }
+  // Portfolio / Website
+  if (t.includes("portfolio") || t.includes("personal website") || t.includes("personal url")) {
+    return "portfolioUrl";
+  }
+
+  return null;
+}
+
+/**
+ * Rate the candidate's resume match against a job description.
+ * Returns { score: number, reason: string }
+ */
+async function rateResumeMatch(jobTitle, company, jobDescription, profile) {
+  const resumeText = profile.resumeText || "";
+
+  const systemPrompt = `You are a strict, senior technical recruiter and hiring manager.
+Your task is to evaluate the match between a candidate's resume and a specific job opening.
+Evaluate technical skills, frameworks, years of experience, and role responsibilities.
+Provide a realistic match score from 0 to 100 and a 1-sentence explanation.
+Return ONLY valid JSON in this exact structure:
+{
+  "score": <integer between 0 and 100>,
+  "reason": "<one concise sentence explaining the score>"
+}`;
+
+  const userPrompt = `
+JOB DETAILS:
+- Title: ${jobTitle}
+- Company: ${company}
+- Description/Requirements:
+${(jobDescription || "Role: " + jobTitle).substring(0, 4000)}
+
+CANDIDATE RESUME & PROFILE:
+- Target Role: ${profile.role || "Developer"}
+- Experience: ${profile.yearsOfExperience || profile.experience || 3} years
+- Current Title: ${profile.currentTitle || profile.role || "Developer"}
+- Current Company: ${profile.currentCompany || "N/A"}
+- Resume Text:
+${resumeText.substring(0, 4000)}
+`;
+
+  try {
+    const rawResponse = await callAI([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ], { temperature: 0.1, jsonMode: true });
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawResponse);
+    } catch (e) {
+      const match = rawResponse.match(/\{[\s\S]*\}/);
+      if (match) parsed = JSON.parse(match[0]);
+    }
+
+    if (parsed && typeof parsed.score === "number") {
+      return {
+        score: Math.min(100, Math.max(0, Math.round(parsed.score))),
+        reason: parsed.reason || "Score calculated based on resume and job alignment."
+      };
+    }
   } catch (err) {
-    console.error("❌ AI Resolver Error:", err.message);
-    console.log("⚠️ Groq API failed. Using local rule-based fallback...");
+    console.error("⚠️ AI Match Rating failed:", err.message);
+  }
+
+  // Fallback heuristic scoring if AI call failed
+  return fallbackMatchRating(jobTitle, jobDescription, profile);
+}
+
+function fallbackMatchRating(jobTitle, jobDescription, profile) {
+  const text = `${jobTitle} ${jobDescription || ""}`.toLowerCase();
+  const resume = (profile.resumeText || "").toLowerCase();
+  
+  const keywords = ["react", "next", "node", "javascript", "typescript", "full stack", "frontend", "backend", "developer", "engineer", "aws", "solidity", "web3", "sql", "api"];
+  let matched = 0;
+  let total = 0;
+
+  for (const kw of keywords) {
+    if (text.includes(kw)) {
+      total++;
+      if (resume.includes(kw)) {
+        matched++;
+      }
+    }
+  }
+
+  const score = total > 0 ? Math.min(95, Math.max(70, Math.round((matched / total) * 100))) : 85;
+  return {
+    score,
+    reason: `Heuristic match: matched ${matched}/${total} key technical skills.`
+  };
+}
+
+/**
+ * Resolves a form question.
+ * If it's a basic personal info question, resolves from profile directly.
+ * Otherwise, asks ChatGPT / AI for the best response.
+ */
+async function resolveQuestion(questionText, profile, tagName = 'input', options = []) {
+  // Check if it's basic personal info
+  const basicField = isBasicPersonalInfo(questionText);
+  if (basicField) {
+    const val = profile[basicField];
+    if (val) {
+      console.log(`📋 Basic Info: Used profile.${basicField} ("${val}") for "${questionText.substring(0, 35)}..."`);
+      return String(val);
+    }
+  }
+
+  // For every other question: ASK CHATGPT / AI!
+  try {
+    const systemPrompt = `You are an expert career assistant completing a job application form on behalf of a candidate.
+Answer the specific form question based on the candidate's resume and profile.
+Follow these rules strictly:
+1. Provide ONLY THE DIRECT ANSWER. No preamble, no conversational filler ("Based on...", "Sure, here is...").
+2. For short inputs (e.g., years of experience, salary, availability): return ONLY the raw value (e.g., "3", "0", "Immediate", "Yes", "12 LPA").
+3. For open-ended questions (e.g. "Why do you want to join?", "Describe your experience with X"): write a concise, professional 1-3 sentence response based on the candidate's actual projects and experience in the resume.
+4. For availability / notice period questions: ALWAYS indicate immediate availability ("0 days", "Immediate").
+5. For authorization / legal questions: candidate is authorized to work and does not require sponsorship unless specified.`;
+
+    const userPrompt = `
+CANDIDATE PROFILE & RESUME:
+- Full Name: ${profile.fullName}
+- Target Role: ${profile.role}
+- Experience: ${profile.yearsOfExperience || profile.experience || 3} years
+- Current Company: ${profile.currentCompany || "MNB Soft Solutions"}
+- Current Role: ${profile.currentTitle || profile.role}
+- Education: ${profile.degree} (${profile.university})
+- Notice Period: Immediate / 0 days
+- Resume Snippet:
+${(profile.resumeText || "").substring(0, 3000)}
+
+QUESTION TO ANSWER:
+"${questionText}"
+${options && options.length > 0 ? `\nAVAILABLE OPTIONS:\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}` : ""}
+
+YOUR ANSWER:`;
+
+    const answer = await callAI([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ], { temperature: 0.1 });
+
+    // Clean up answer
+    let clean = answer.trim();
+    if (clean.includes(':') && (clean.toLowerCase().startsWith('answer:') || clean.toLowerCase().startsWith('final answer:'))) {
+      clean = clean.split(':').slice(1).join(':').trim();
+    }
+    clean = clean.replace(/^["']|["']$/g, '').trim();
+
+    console.log(`🧠 ChatGPT Answered: "${questionText.substring(0, 40)}..." -> "${clean.substring(0, 50)}"`);
+    return clean;
+  } catch (err) {
+    console.error("❌ AI Question Resolver Error:", err.message);
     return localFallbackResolve(questionText, profile, tagName);
   }
 }
 
 /**
- * Fallback resolver using heuristics and user profile context when the LLM is unavailable.
+ * Given a select or radio/checkbox group with multiple options, asks ChatGPT to pick the single best option.
+ */
+async function chooseBestOption(questionText, options, profile) {
+  if (!options || options.length === 0) return null;
+
+  try {
+    const prompt = `You are filling out a job application for a candidate.
+Question: "${questionText}"
+Candidate Role: ${profile.role || "Full Stack Developer"}
+Candidate Experience: ${profile.yearsOfExperience || 3} years
+Notice Period: Immediate / 0 days
+Work Auth: Authorized to work, no sponsorship needed.
+Resume: ${(profile.resumeText || "").substring(0, 1500)}
+
+Available Options:
+${options.map((opt, i) => `[${i}] ${opt}`).join('\n')}
+
+Select the SINGLE BEST matching option for this candidate.
+Return ONLY the EXACT option text as it appears in the list. Do not include quotes or indices.`;
+
+    const answer = await callAI([
+      { role: "system", content: "You are an automated job applicant. Return only the exact chosen option text." },
+      { role: "user", content: prompt }
+    ], { temperature: 0.1 });
+
+    const cleanAnswer = answer.trim().replace(/^["']|["']$/g, '');
+    
+    // Find closest match in options
+    const exactMatch = options.find(o => o.trim().toLowerCase() === cleanAnswer.toLowerCase());
+    if (exactMatch) return exactMatch;
+
+    const partialMatch = options.find(o => o.toLowerCase().includes(cleanAnswer.toLowerCase()) || cleanAnswer.toLowerCase().includes(o.toLowerCase()));
+    if (partialMatch) return partialMatch;
+
+    return cleanAnswer;
+  } catch (err) {
+    console.error("⚠️ AI Option Selection failed:", err.message);
+    // Simple heuristic fallback
+    return options[0];
+  }
+}
+
+/**
+ * Given a single checkbox or radio option, asks ChatGPT if it should be selected ("Yes" / "No").
+ */
+async function shouldSelectOption(questionText, optionLabel, profile) {
+  try {
+    const prompt = `You are filling out a job application.
+Question Context: "${questionText}"
+Option Label: "${optionLabel}"
+Candidate: Full Stack Developer (3 years exp, available immediately, authorized to work, no visa sponsorship needed).
+
+Should this option be selected/checked?
+Return ONLY "Yes" or "No".`;
+
+    const answer = await callAI([
+      { role: "system", content: "Return ONLY 'Yes' or 'No'." },
+      { role: "user", content: prompt }
+    ], { temperature: 0.1 });
+
+    return answer.toLowerCase().includes("yes");
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Local fallback heuristics if AI is offline
  */
 function localFallbackResolve(questionText, profile, tagName) {
-  const text = questionText.toLowerCase().trim();
+  const text = (questionText || "").toLowerCase().trim();
 
-  // 1. Notice period / availability / start date
   if (text.includes("notice") || text.includes("start") || text.includes("availab") || text.includes("join") || text.includes("how soon")) {
-    if (text.includes("day") || text.includes("week") || text.includes("month") || text.includes("number")) {
-      return "0";
-    }
+    if (text.includes("day") || text.includes("number")) return "0";
     return "Immediate";
   }
 
-  // 2. Visa / H1B / Sponsorship
-  if (text.includes("sponsorship") || text.includes("visa") || text.includes("h1b") || text.includes("permit") || text.includes("citizenship")) {
-    // Return Yes if profile requires sponsorship, otherwise No (default candidate doesn't need sponsorship)
-    return profile.visaSponsorship ? "Yes" : "No";
-  }
+  if (text.includes("sponsorship") || text.includes("visa")) return "No";
+  if (text.includes("authorized") || text.includes("legal")) return "Yes";
+  if (text.includes("agree") || text.includes("consent") || text.includes("confirm")) return "Yes";
+  if (text.includes("year") || text.includes("experience")) return String(profile.yearsOfExperience || 3);
+  if (text.includes("salary") || text.includes("ctc")) return profile.expectedCtc || "12 LPA";
 
-  // 3. Authorization / Eligibility
-  if (text.includes("authorized") || text.includes("citizen") || text.includes("legal") || text.includes("work in") || text.includes("legally")) {
-    return profile.workAuthorization ? "Yes" : "No";
-  }
-
-  // 4. Agreement / Consent / Background Check
-  if (text.includes("agree") || text.includes("consent") || text.includes("declare") || text.includes("background check") || text.includes("privacy") || text.includes("confirm")) {
-    return "Yes";
-  }
-
-  // 5. Demographics (Gender, Ethnicity, Veteran, Disability)
-  if (text.includes("gender") || text.includes("sex")) {
-    return profile.gender || "Decline to self-identify";
-  }
-  if (text.includes("ethnicity") || text.includes("race")) {
-    return profile.ethnicity || "Decline to self-identify";
-  }
-  if (text.includes("veteran")) {
-    return profile.veteranStatus || "No";
-  }
-  if (text.includes("disability") || text.includes("handicap")) {
-    return profile.disabilityStatus || "No";
-  }
-
-  // 6. Technology skills / Years of experience
-  // If the question is short (often just a skill name e.g. "React.JS") or contains terms related to experience
-  const words = text.split(/\s+/);
-  const isProbablySkill = text.length < 40 && !text.includes("?") && !words.some(w => ["what", "why", "where", "how", "who", "when", "describe", "explain", "please"].includes(w));
-  
-  const isSkillQuestion = isProbablySkill || (
-    text.includes("react") || text.includes("typescript") || text.includes("javascript") || 
-    text.includes("playwright") || text.includes("aws") || text.includes("node") || 
-    text.includes("python") || text.includes("css") || text.includes("html") || 
-    text.includes("frontend") || text.includes("backend") || text.includes("developer") ||
-    text.includes("engineer") || text.includes("database") || text.includes("sql") ||
-    text.includes("git") || text.includes("docker") || text.includes("kubernetes") ||
-    text.includes("programming") || text.includes("coding") || text.includes("development")
-  );
-  
-  if (text.includes("year") || text.includes("experience") || text.includes("how long") || isSkillQuestion) {
-    // Return years of experience as a string digit
-    return String(profile.yearsOfExperience || 4);
-  }
-
-  // 7. General Yes/No questions
-  if (text.includes("do you") || text.includes("have you") || text.includes("are you") || text.includes("can you")) {
-    return "Yes";
-  }
-
-  // 8. General numeric questions
-  if (text.includes("how many") || text.includes("number of") || text.includes("count")) {
-    return "3";
-  }
-
-  // Default fallback
   return "Yes";
 }
 
-module.exports = { resolveQuestion };
+module.exports = {
+  rateResumeMatch,
+  resolveQuestion,
+  chooseBestOption,
+  shouldSelectOption,
+  isBasicPersonalInfo,
+};

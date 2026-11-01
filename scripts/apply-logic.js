@@ -1,6 +1,11 @@
 const path = require("path");
 const readline = require("readline");
-const { resolveQuestion } = require("./ai-resolver");
+const { 
+  resolveQuestion, 
+  chooseBestOption, 
+  shouldSelectOption, 
+  isBasicPersonalInfo 
+} = require("./ai-resolver");
 const { wait } = require("convex/server");
 
 // --- TEST MODE FLAG ---
@@ -385,42 +390,16 @@ async function answerFormQuestions(page, prefs) {
       // 1. Handle Text & Textarea
       if ((el.tagName === 'INPUT' && el.type !== 'radio' && el.type !== 'checkbox') || el.tagName === 'TEXTAREA') {
         let valueToFill = null;
-        if (el.text.includes('full name') || el.text.includes('your name')) {
-          valueToFill = prefs.fullName || null;
-        } else if (el.text.includes('phone') || el.text.includes('mobile')) {
-          valueToFill = prefs.phone || null;
-        } else if (el.text.includes('github')) {
-          valueToFill = prefs.githubId || null;
-        } else if (el.text.includes('portfolio') || el.text.includes('website')) {
-          valueToFill = prefs.portfolioUrl || prefs.linkedinId || null;
-        } else if (el.text.includes('linkedin')) {
-          valueToFill = prefs.linkedinId || null;
-        } else if (el.text.includes('current company') || el.text.includes('employer')) {
-          valueToFill = prefs.currentCompany || null;
-        } else if (el.text.includes('current title') || el.text.includes('designation')) {
-          valueToFill = prefs.currentTitle || null;
-        } else if (el.text.includes('street address')) {
-          valueToFill = prefs.streetAddress || null;
-        } else if (el.text.includes('city')) {
-          valueToFill = prefs.city || null;
-        } else if (el.text.includes('state') || el.text.includes('province')) {
-          valueToFill = prefs.state || null;
-        } else if (el.text.includes('zip') || el.text.includes('postal')) {
-          valueToFill = prefs.zipCode || null;
-        } else if (el.text.includes('country')) {
-          valueToFill = prefs.country || null;
-        } else if (el.text.includes('earliest start date') || el.text.includes('availability date') || el.text.includes('how soon') || el.text.includes('notice period')) {
-          if (el.text.includes('days') || el.text.includes('how many')) {
-            valueToFill = "0";
-          } else {
-            valueToFill = "Immediate";
-          }
-        } else if ((el.text.includes('city') || el.text.includes('location')) && !el.value) {
-          valueToFill = prefs.location || null;
-        } else if (prefs.resumeText) {
-          // AI Fallback for complex questions
-          console.log(`🧠 Consulting AI for: "${el.text.substring(0, 40)}..."`);
-          valueToFill = await resolveQuestion(el.text, prefs, 'input');
+
+        // Check if question is basic personal info
+        const basicField = isBasicPersonalInfo(el.text);
+        if (basicField && prefs[basicField]) {
+          valueToFill = String(prefs[basicField]);
+          console.log(`📋 Basic Info Match: ${basicField} -> "${valueToFill}" for "${el.text.substring(0, 30)}..."`);
+        } else {
+          // For EVERY other question: Ask ChatGPT!
+          console.log(`🧠 Asking ChatGPT for question: "${el.text.substring(0, 50)}..."`);
+          valueToFill = await resolveQuestion(el.text, prefs, el.tagName.toLowerCase());
         }
 
         if (valueToFill !== null && el.value !== valueToFill) {
@@ -433,7 +412,7 @@ async function answerFormQuestions(page, prefs) {
           // Double check with keyboard if it didn't take
           const currentVal = await locator.inputValue();
           if (currentVal !== valueToFill) {
-            console.log(`⌨️  React detected! Using keyword typing for: ${valueToFill}`);
+            console.log(`⌨️  React detected! Using keyboard typing for: ${valueToFill}`);
             await locator.click();
             await page.keyboard.press('Control+A');
             await page.keyboard.press('Backspace');
@@ -453,57 +432,25 @@ async function answerFormQuestions(page, prefs) {
         }
       }
 
-      
-      // 2. Handle Select
+      // 2. Handle Select (Dropdowns)
       const isSelectDefault = el.selectedIndex === 0 || el.value === "" || el.text.toLowerCase().includes("select an opt");
       if (el.tagName === 'SELECT' && isSelectDefault) {
-        let targetRegex = null;
-        let optionSelected = false;
+        const options = await locator.locator('option').allTextContents();
+        const cleanOptions = options.slice(1).map(o => o.trim()).filter(o => o);
 
-        if (el.text.includes('experience') || el.text.includes('years')) {
-          targetRegex = /3|mid|intermediate/i;
-        } else if (el.text.includes('authorized') || el.text.includes('citizenship') || el.text.includes('comfortable') || el.text.includes('contract') || el.text.includes('weeks') || el.text.includes('join') || el.text.includes('start') || el.text.includes('notice')) {
-          targetRegex = /yes|immediately|now|0|less than|none/i;
-        } else if (el.text.includes('sponsorship')) {
-          targetRegex = /no/i;
-        } else if (el.text.includes('email')) {
-          targetRegex = /arora|sumrit/i; // Match user email from profile
-        } else if (el.text.includes('country code')) {
-          targetRegex = /india|\+91/i; // Default to India as per profile
-        }
+        if (cleanOptions.length > 0) {
+          console.log(`🧠 Asking ChatGPT to choose best option for select: "${el.text.substring(0, 45)}..."`);
+          const chosenOption = await chooseBestOption(el.text, cleanOptions, prefs);
 
-        if (targetRegex) {
-          const options = await locator.locator('option').allTextContents();
-          for (let i = 1; i < options.length; i++) {
-            if (targetRegex.test(options[i])) {
-              console.log(`✅ Selecting join/contract option: "${options[i].trim()}"`);
-              await locator.selectOption({ index: i });
-              optionSelected = true;
-              await page.waitForTimeout(300);
-              break;
-            }
-          }
-        } 
-        
-        if (!optionSelected && prefs.resumeText) {
-          // AI Fallback for complex select if regex failed or wasn't applicable
-          console.log(`🧠 Consulting AI for select: "${el.text.substring(0, 40)}..."`);
-          const options = await locator.locator('option').allTextContents();
-          const cleanOptions = options.slice(1).map(o => o.trim()).filter(o => o); // Skip "Select an option"
-          
-          let aiText = el.text + " (Options: " + cleanOptions.join(', ') + ")";
-          if (el.text.includes('notice') || el.text.includes('join') || el.text.includes('start') || el.text.includes('availab')) {
-            aiText += " (Note: Candidate is available to join IMMEDIATELY)";
-          }
-          const aiAnswer = await resolveQuestion(aiText, prefs, 'select');
-          if (aiAnswer) {
+          if (chosenOption) {
             for (let i = 1; i < options.length; i++) {
-              if (options[i].toLowerCase().includes(aiAnswer.toLowerCase()) || aiAnswer.toLowerCase().includes(options[i].toLowerCase())) {
-                console.log(`✅ AI matching select: "${options[i].trim()}"`);
+              if (options[i].trim().toLowerCase() === chosenOption.trim().toLowerCase() ||
+                  options[i].toLowerCase().includes(chosenOption.toLowerCase()) || 
+                  chosenOption.toLowerCase().includes(options[i].toLowerCase())) {
+                console.log(`✅ ChatGPT selected option: "${options[i].trim()}"`);
                 await locator.selectOption({ index: i }, { timeout: 3000 }).catch(err => {
-                   console.warn(`⚠️ Warning: Selection failed for "${options[i].trim()}": ${err.message}`);
+                  console.warn(`⚠️ Warning: Selection failed for "${options[i].trim()}": ${err.message}`);
                 });
-                optionSelected = true;
                 await page.waitForTimeout(300);
                 break;
               }
@@ -514,29 +461,15 @@ async function answerFormQuestions(page, prefs) {
 
       // 3. Handle Radio & Checkbox
       if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox') && !el.checked) {
-        let target = null;
-        if (el.text.includes('have') || el.text.includes('experience') || el.text.includes('comfortable') || el.text.includes('authorized') || el.text.includes('legally') || el.text.includes('join') || el.text.includes('period') || el.text.includes('start') || el.text.includes('availab') || el.text.includes('declare') || el.text.includes('agree') || el.text.includes('consent') || el.text.includes('privacy') || el.text.includes('background check') || el.text.includes('contract') || el.text.includes('willing') || el.text.includes('comfortable') || el.text.includes('interest')) {
-          target = "yes";
-        } else if (el.text.includes('sponsorship') || el.text.includes('visa') || el.text.includes('h1b')) {
-          target = "no";
-        }
-        
-        // Handle direct labels like "I consent"
-        const isConsent = el.label.includes("consent") || el.label.includes("agree") || el.label.includes("yes");
-        
-        if ((target && el.label.includes(target)) || (target === "yes" && isConsent)) {
-          console.log(`🔘 Clicking ${el.type}: "${el.label || el.text.substring(0, 30)}"`);
+        console.log(`🧠 Asking ChatGPT if option should be selected (${el.type}): "${el.text.substring(0, 35)}..." [${el.label || 'Option'}]`);
+        const shouldSelect = await shouldSelectOption(el.text, el.label || el.text, prefs);
+
+        if (shouldSelect) {
+          console.log(`🔘 ChatGPT chose to SELECT ${el.type}: "${el.label || el.text.substring(0, 30)}"`);
           await locator.click({ force: true });
           await page.waitForTimeout(300);
-        } else if (prefs.resumeText) {
-          // AI Fallback for complex radio/checkbox
-          console.log(`🧠 Consulting AI for selection (${el.type}): "${el.text.substring(0, 40)}..."`);
-          const aiAnswer = await resolveQuestion(el.text + " (Options: " + (el.label || "Check/Uncheck") + ")", prefs, 'radio');
-          if (aiAnswer && (aiAnswer.toLowerCase().includes('yes') || aiAnswer.toLowerCase().includes('check') || (el.label && (el.label.includes(aiAnswer.toLowerCase()) || aiAnswer.toLowerCase().includes(el.label.toLowerCase()))))) {
-            console.log(`✅ AI matching selection (${el.type}): "${el.label || 'checked'}"`);
-            await locator.click({ force: true });
-            await page.waitForTimeout(300);
-          }
+        } else {
+          console.log(`⚪ ChatGPT chose to LEAVE UNCHECKED: "${el.label || el.text.substring(0, 30)}"`);
         }
       }
     }

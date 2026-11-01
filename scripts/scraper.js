@@ -23,9 +23,11 @@ async function scrapeNaukri(role, location) {
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
-    args: ["--disable-blink-features=AutomationControlled"]
+    args: ["--disable-blink-features=AutomationControlled"],
+    ignoreDefaultArgs: ["--enable-automation"]
   });
   const page = await context.newPage();
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
 
   try {
     // Naukri URL structure: naukri.com/role-jobs-in-location
@@ -74,9 +76,11 @@ async function scrapeIndeed(role, location) {
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
-    args: ["--disable-blink-features=AutomationControlled"]
+    args: ["--disable-blink-features=AutomationControlled"],
+    ignoreDefaultArgs: ["--enable-automation"]
   });
   const page = await context.newPage();
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
 
   try {
     const url = `https://www.indeed.com/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(location)}`;
@@ -141,9 +145,11 @@ async function scrapeInternshala(role, location) {
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
-    args: ["--disable-blink-features=AutomationControlled"]
+    args: ["--disable-blink-features=AutomationControlled"],
+    ignoreDefaultArgs: ["--enable-automation"]
   });
   const page = await context.newPage();
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
 
   try {
     // Map common roles to Internshala's canonical slugs
@@ -213,10 +219,12 @@ async function scrapeLinkedIn(role, location) {
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
-    args: ["--disable-blink-features=AutomationControlled"]
+    args: ["--disable-blink-features=AutomationControlled"],
+    ignoreDefaultArgs: ["--enable-automation"]
   });
 
   const page = await context.newPage();
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
 
   try {
     const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}`;

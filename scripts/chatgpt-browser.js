@@ -3,21 +3,6 @@
  * Communicates with ChatGPT via browser automation on https://chatgpt.com (NO API used).
  */
 
-const readline = require("readline");
-
-function waitForKey(promptMessage = "Press ENTER to continue...") {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  return new Promise((resolve) =>
-    rl.question(`\n👉 ${promptMessage} `, (ans) => {
-      rl.close();
-      resolve(ans);
-    })
-  );
-}
-
 class ChatGPTController {
   constructor(context) {
     this.context = context;
@@ -47,6 +32,11 @@ class ChatGPTController {
     if (!this.page || this.page.isClosed()) {
       this.page = await this.context.newPage();
       try {
+        await this.page.addInitScript(() => {
+          Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined,
+          });
+        });
         await this.page.goto("https://chatgpt.com", { waitUntil: "domcontentloaded", timeout: 45000 });
       } catch (err) {
         console.warn("ℹ️ ChatGPT page loading notice:", err.message);
@@ -68,28 +58,47 @@ class ChatGPTController {
 
     await this.page.waitForTimeout(2000);
 
-    const inputSelector = '#prompt-textarea, div[contenteditable="true"]#prompt-textarea, textarea[placeholder*="Message"], div[contenteditable="true"]';
-    
+    const inputSelector = 'div.ProseMirror, div[contenteditable="true"], #prompt-textarea, textarea[placeholder*="Message"]';
     let isPromptVisible = await this.page.locator(inputSelector).first().isVisible().catch(() => false);
 
     if (!isPromptVisible) {
-      console.log("\n⚠️  ChatGPT verification or login required in the browser!");
-      console.log("👉 Please switch to the opened ChatGPT browser tab and complete any login/Cloudflare check.");
-      console.log("   (Auto-detecting... will proceed automatically as soon as the prompt input is ready)");
+      console.log("\n⚠️  ChatGPT verification or prompt input loading...");
+      console.log("👉 Checking for Cloudflare check or login requirements...");
 
-      for (let sec = 0; sec < 30; sec++) {
+      for (let sec = 0; sec < 45; sec++) {
+        // Check for Cloudflare Turnstile iframes and attempt click
+        try {
+          for (const frame of this.page.frames()) {
+            const checkbox = frame.locator('input[type="checkbox"], #challenge-stage, .ctp-checkbox-label').first();
+            if (await checkbox.isVisible().catch(() => false)) {
+              console.log("🛡️ Cloudflare verification checkbox detected! Auto-clicking...");
+              await checkbox.click({ force: true }).catch(() => {});
+            }
+          }
+        } catch (e) {}
+
         await this.page.waitForTimeout(1000);
         isPromptVisible = await this.page.locator(inputSelector).first().isVisible().catch(() => false);
         if (isPromptVisible) {
           console.log("✅ ChatGPT prompt input confirmed ready!");
-          break;
+          this.isReady = true;
+          return;
         }
       }
-    } else {
-      console.log("✅ ChatGPT session is active and ready!");
+
+      console.warn("⚠️ Warning: ChatGPT prompt input not visible yet. Attempting reload...");
+      await this.page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+      await this.page.waitForTimeout(3000);
+      isPromptVisible = await this.page.locator(inputSelector).first().isVisible().catch(() => false);
     }
 
-    this.isReady = true;
+    if (isPromptVisible) {
+      console.log("✅ ChatGPT session is active and ready!");
+      this.isReady = true;
+    } else {
+      console.warn("⚠️ ChatGPT input could not be confirmed visible. User may need to log in on the browser tab.");
+      this.isReady = false;
+    }
   }
 
   /**
@@ -103,39 +112,20 @@ class ChatGPTController {
       await this.page.bringToFront();
       await this.page.waitForTimeout(500);
 
-      const inputSelector = '#prompt-textarea, div[contenteditable="true"]#prompt-textarea, textarea[placeholder*="Message"], div[contenteditable="true"]';
+      const inputSelector = 'div.ProseMirror, div[contenteditable="true"], #prompt-textarea, textarea[placeholder*="Message"]';
       const promptLocator = this.page.locator(inputSelector).first();
-      await promptLocator.waitFor({ state: "visible", timeout: 20000 });
+      await promptLocator.waitFor({ state: "visible", timeout: 25000 });
 
-      // Count existing assistant messages to know when a new one arrives
-      const initialAssistantCount = await this.page.locator('[data-message-author-role="assistant"]').count().catch(() => 0);
-
-      // Fill in prompt
+      // Focus and enter text
       await promptLocator.click();
       await this.page.waitForTimeout(300);
 
-      // Use evaluate for reliable input across contenteditable and textarea implementations
-      await this.page.evaluate(({ selector, text }) => {
-        const el = document.querySelector(selector);
-        if (el) {
-          el.focus();
-          if (el.isContentEditable) {
-            el.innerHTML = `<p>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</p>`;
-          } else {
-            el.value = text;
-          }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }, { selector: '#prompt-textarea', text: promptText }).catch(async () => {
-        // Fallback to fill
-        await promptLocator.fill(promptText);
-      });
-
+      // Native text insertion allows modern ProseMirror / React to update state accurately
+      await this.page.keyboard.insertText(promptText);
       await this.page.waitForTimeout(600);
 
-      // Click Send or press Enter
-      const sendBtn = this.page.locator('button[data-testid="send-button"], button[aria-label*="Send"], button[data-testid="fruitjuice-send-button"]').first();
+      // Locate send button
+      const sendBtn = this.page.locator('button[aria-label*="Send"], button[type="submit"]:has(svg), button[data-testid*="send"], button[data-testid="fruitjuice-send-button"]').first();
       const sendBtnVisible = await sendBtn.isVisible().catch(() => false);
       
       if (sendBtnVisible && (await sendBtn.isEnabled().catch(() => false))) {
@@ -146,43 +136,44 @@ class ChatGPTController {
 
       console.log("⏳ Waiting for ChatGPT response...");
 
-      // 1. Wait for assistant response to appear
-      await this.page.waitForFunction((prevCount) => {
-        const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-        return msgs.length > prevCount;
-      }, initialAssistantCount, { timeout: 45000 }).catch(() => {
-        console.log("ℹ️ Waiting for streaming to start...");
-      });
-
-      // 2. Wait for streaming to complete (stop button disappears and send button returns)
-      await this.page.waitForTimeout(2000);
-      const stopBtn = this.page.locator('button[data-testid="stop-button"], button[aria-label*="Stop"]').first();
-      
+      // Wait for streaming (stop button appears while generating)
+      const stopBtn = this.page.locator('button[aria-label*="Stop"], button[data-testid*="stop"]').first();
       try {
-        await stopBtn.waitFor({ state: "detached", timeout: 60000 });
+        await stopBtn.waitFor({ state: "visible", timeout: 6000 });
+        // Stream in progress: wait until stop button is detached
+        await stopBtn.waitFor({ state: "detached", timeout: 70000 });
       } catch (e) {
-        // Stop button might have already detached or not appeared for quick answers
+        // Stop button might have detached quickly for short replies
+        await this.page.waitForTimeout(4000);
       }
 
-      // Buffer to ensure DOM text has fully updated
+      // Small buffer for DOM rendering to stabilize
       await this.page.waitForTimeout(1500);
 
-      // 3. Extract the last assistant response
-      const assistantMsgs = this.page.locator('[data-message-author-role="assistant"]');
-      const count = await assistantMsgs.count();
-      let responseText = "";
-
-      if (count > 0) {
-        responseText = await assistantMsgs.nth(count - 1).innerText();
-      } else {
-        const markdowns = this.page.locator('.markdown');
-        const mCount = await markdowns.count();
-        if (mCount > 0) {
-          responseText = await markdowns.nth(mCount - 1).innerText();
+      // Extract the last response generated by ChatGPT
+      const responseText = await this.page.evaluate(() => {
+        // Priority 1: Markdown prose elements
+        const markdowns = Array.from(document.querySelectorAll('.markdown, div[class*="markdown"], div[class*="prose"]'));
+        if (markdowns.length > 0) {
+          return markdowns[markdowns.length - 1].innerText;
         }
-      }
 
-      return responseText.trim();
+        // Priority 2: Conversation turns
+        const turns = Array.from(document.querySelectorAll('[data-testid*="conversation-turn"]'));
+        if (turns.length > 0) {
+          return turns[turns.length - 1].innerText;
+        }
+
+        // Priority 3: Messages with assistant role
+        const msgs = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+        if (msgs.length > 0) {
+          return msgs[msgs.length - 1].innerText;
+        }
+
+        return "";
+      });
+
+      return (responseText || "").trim();
     } catch (err) {
       console.error("❌ ChatGPT Web Automation Error:", err.message);
       return null;
@@ -198,7 +189,7 @@ class ChatGPTController {
 You are an expert technical hiring manager and recruitment specialist.
 
 Analyze the candidate's resume and rate how well it matches the target job role on a strict numerical scale from 0 to 100.
-A score above 90 means the candidate has the relevant skills, experience, and tech stack required for the role.
+A score strictly ABOVE 90 means the candidate has the relevant skills, experience, and tech stack required for the role.
 A score of 90 or below means there are missing requirements or technology mismatches.
 
 CANDIDATE RESUME:
@@ -234,7 +225,6 @@ REASON: <one short, straightforward sentence explaining why>
     if (scoreMatch) {
       score = parseInt(scoreMatch[1], 10);
     } else {
-      // Fallback: look for any number 0-100
       const anyNum = rawResponse.match(/\b([1-9]?\d|100)\b/);
       if (anyNum) score = parseInt(anyNum[1], 10);
     }

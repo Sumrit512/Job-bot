@@ -87,12 +87,20 @@ async function applyToAllPending(agentKeyInput) {
         "--disable-blink-features=AutomationControlled",
         "--no-sandbox",
         "--disable-dev-shm-usage"
-      ]
+      ],
+      ignoreDefaultArgs: ["--enable-automation"]
     });
 
     // Reuse default page instead of opening extra blank tabs
     const pages = context.pages();
     page = pages.length > 0 ? pages[0] : await context.newPage();
+
+    // Anti-automation detection evasion
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+    });
 
     chatgpt = new ChatGPTController(context);
     await chatgpt.init().catch(err => {

@@ -18,34 +18,40 @@ async function applyToAllPending(agentKeyInput) {
 
   console.log("🤖 Starting Auto-Apply process...");
 
-  // 1. Fetch pending jobs from Convex
-  const jobs = await client.query("jobs:listJobs", { agentKey });
-  const pendingJobs = jobs.filter(j => j.status === "pending");
-
-  if (pendingJobs.length === 0) {
-    console.log("✅ No pending jobs to apply for.");
-    return;
-  }
-
-  console.log(`📝 Found ${pendingJobs.length} pending jobs. Starting applications...`);
-
-  // 2. Fetch Preferences and Resume URL
+  // 1. Fetch Preferences first to know user's selected portals
   const prefs = await client.query("preferences:getPreferences", { agentKey });
   if (!prefs) {
     console.error("❌ No preferences found in Convex. Please save your profile in the web app first.");
     return;
   }
 
-  // Filter pending jobs by target portals if specified in preferences
-  let jobsToApply = pendingJobs;
-  if (prefs.targetPortals && prefs.targetPortals.length > 0) {
-    const selectedPortals = prefs.targetPortals.map(p => p.toLowerCase());
-    jobsToApply = pendingJobs.filter(j => selectedPortals.includes((j.source || "").toLowerCase()));
-    console.log(`🎯 Target portals filter: ${selectedPortals.join(", ")} (${jobsToApply.length} of ${pendingJobs.length} jobs match)`);
+  // 2. Fetch pending jobs from Convex
+  const jobs = await client.query("jobs:listJobs", { agentKey });
+  const pendingJobs = jobs.filter(j => j.status === "pending");
+
+  if (pendingJobs.length === 0) {
+    console.log("✅ No pending jobs in database.");
+    return;
   }
 
+  // 3. Strictly filter jobs by user's selected portals
+  const targetPortals = (prefs.targetPortals && prefs.targetPortals.length > 0)
+    ? prefs.targetPortals.map(p => p.toLowerCase().trim())
+    : ["linkedin", "internshala", "naukri"];
+
+  console.log(`🎯 User-Selected Target Portals: [${targetPortals.join(", ")}]`);
+
+  function isJobMatchingSelectedPortals(job) {
+    const src = (job.source || "").toLowerCase().trim();
+    const url = (job.url || "").toLowerCase().trim();
+    return targetPortals.some(p => src.includes(p) || url.includes(p));
+  }
+
+  const jobsToApply = pendingJobs.filter(isJobMatchingSelectedPortals);
+  console.log(`📝 Found ${jobsToApply.length} pending jobs matching your selected portals (out of ${pendingJobs.length} total pending). Starting applications...`);
+
   if (jobsToApply.length === 0) {
-    console.log("✅ No pending jobs matching selected target portals.");
+    console.log(`✅ No pending jobs match your selected portal(s) [${targetPortals.join(", ")}].`);
     return;
   }
 

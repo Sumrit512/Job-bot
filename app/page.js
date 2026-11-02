@@ -329,8 +329,38 @@ export default function Home() {
         await clearCommand();
         alert("Agent status reset to idle.");
       } else {
+        // Immediately sync preferences (ensuring latest selected portals are saved to Convex before triggering)
+        try {
+          await savePreferences({
+            fullName, phone, role, experience, location, linkedinId, githubId, 
+            portfolioUrl, noticePeriod, workAuthorization: workAuth, visaSponsorship, 
+            currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
+            jobType: selectedJobTypes,
+            targetPortals: selectedPortals,
+            salaryRange: salary,
+            currentCtc, expectedCtc,
+            yearsOfExperience: parseInt(experience) || 4,
+            streetAddress, city, state, zipCode, country,
+            gender, ethnicity, veteranStatus, disabilityStatus, pronouns,
+            earliestStartDate, willingToRelocate: !!willingToRelocate,
+            whyThisRole, biggestAchievement,
+            numberOfProjects: parseInt(numberOfProjects) || 0,
+            fitnessFrequency,
+            dob,
+            references: references.filter(r => r.name),
+            resumeText
+          });
+        } catch (err) {}
+
         await triggerCommand({ command });
-        alert(`${command.charAt(0).toUpperCase() + command.slice(1)} command sent!`);
+        const portalList = selectedPortals.join(", ");
+        if (command === "scrape") {
+          alert(`Searching for jobs ONLY on: ${portalList}`);
+        } else if (command === "apply") {
+          alert(`Auto-apply started for jobs ONLY on: ${portalList}`);
+        } else {
+          alert(`${command.charAt(0).toUpperCase() + command.slice(1)} command sent!`);
+        }
       }
     } catch (e) {
       alert("Error triggering command. Is Convex dev running?");
@@ -340,6 +370,54 @@ export default function Home() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 min-h-screen pb-20 px-4 md:px-8">
+      {/* Quick Portal Selection Bar */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 backdrop-blur-sm mt-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20 text-emerald-400">
+            <Globe size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-white tracking-wide">Target Job Portals</h2>
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Active Filter
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">The agent will strictly search and apply ONLY on these chosen platforms:</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            { id: "LinkedIn", label: "LinkedIn", icon: "💼" },
+            { id: "Internshala", label: "Internshala", icon: "🎓" },
+            { id: "Naukri", label: "Naukri", icon: "🏢" },
+            { id: "Indeed", label: "Indeed", icon: "🌐" }
+          ].map(portal => {
+            const isSelected = selectedPortals.includes(portal.id);
+            return (
+              <button
+                type="button"
+                key={portal.id}
+                onClick={() => togglePortal(portal.id)}
+                className={`px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+                  isSelected
+                    ? "bg-emerald-500/15 border-emerald-500/80 text-emerald-300 shadow-sm shadow-emerald-500/20"
+                    : "bg-slate-950/80 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400"
+                }`}
+              >
+                <span>{portal.icon}</span>
+                <span>{portal.label}</span>
+                {isSelected ? (
+                  <CheckCircle2 size={14} className="text-emerald-400 ml-0.5" />
+                ) : (
+                  <span className="w-2.5 h-2.5 rounded-full border border-slate-700 ml-0.5"></span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 py-8">
         <div>

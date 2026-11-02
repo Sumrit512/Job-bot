@@ -108,6 +108,7 @@ async function autoSetup() {
           workAuthorization: true,
           visaSponsorship: false,
           jobType: ["WFH", "Hybrid", "Full-time"],
+          targetPortals: ["LinkedIn", "Internshala", "Naukri"],
           resumeText
         });
         console.log(`${COLORS.agent}[SETUP] ✅ Default profile seeded into Convex!${COLORS.reset}`);

@@ -147,14 +147,14 @@ async function applyToAllPending(agentKeyInput) {
           return descEl ? descEl.innerText.substring(0, 3000) : "";
         });
 
-        // Step 2: Ask ChatGPT Web to rate resume against this job role
-        console.log(`⚖️  Rating resume match with ChatGPT...`);
+        // Step 2: Ask ChatGPT Web to rate resume & user profile against this job role
+        console.log(`⚖️  Rating resume and profile match with ChatGPT...`);
         const rating = await chatgpt.rateResume({
           title: job.title,
           company: job.company,
           location: job.location,
           description: jobDescription
-        }, prefs.resumeText);
+        }, prefs);
 
         console.log(`📊 Rating Result: Score = ${rating.score}/100`);
         console.log(`📝 Reason: ${rating.explanation}`);

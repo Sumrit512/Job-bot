@@ -3,6 +3,108 @@
  * Communicates with ChatGPT via browser automation on https://chatgpt.com (NO API used).
  */
 
+/**
+ * Formats the candidate's complete profile form and resume text into
+ * an exhaustive structured summary so ChatGPT has full context.
+ */
+function formatFullCandidateContext(profile, resumeTextFallback = "") {
+  if (!profile && !resumeTextFallback) return "No candidate information provided.";
+
+  if (typeof profile === "string") {
+    const text = profile.trim();
+    return `FULL CANDIDATE RESUME & PROFILE:\n"""\n${text}\n"""`;
+  }
+
+  const sections = [];
+
+  // 1. Personal & Contact
+  const personal = [];
+  if (profile.fullName) personal.push(`- Full Name: ${profile.fullName}`);
+  if (profile.phone) personal.push(`- Phone: ${profile.phone}`);
+  if (profile.dob) personal.push(`- Date of Birth: ${profile.dob}`);
+  if (profile.gender) personal.push(`- Gender: ${profile.gender}`);
+  if (profile.pronouns) personal.push(`- Pronouns: ${profile.pronouns}`);
+  if (profile.ethnicity) personal.push(`- Ethnicity: ${profile.ethnicity}`);
+  if (personal.length > 0) sections.push(`PERSONAL & CONTACT DETAILS:\n${personal.join("\n")}`);
+
+  // 2. Current Role & Professional Experience
+  const career = [];
+  if (profile.currentTitle || profile.role) career.push(`- Target / Current Role: ${profile.currentTitle || profile.role}`);
+  if (profile.currentCompany) career.push(`- Current Company: ${profile.currentCompany}`);
+  const yoe = profile.yearsOfExperience ?? profile.experience ?? 4;
+  career.push(`- Total Years of Experience: ${yoe} years`);
+  if (profile.experience && String(profile.experience) !== String(yoe)) {
+    career.push(`- Experience Level: ${profile.experience}`);
+  }
+  if (profile.numberOfProjects) career.push(`- Total Completed Projects / Apps: ${profile.numberOfProjects}`);
+  if (career.length > 0) sections.push(`PROFESSIONAL EXPERIENCE:\n${career.join("\n")}`);
+
+  // 3. Compensation & Availability
+  const comp = [];
+  if (profile.currentCtc) comp.push(`- Current CTC: ${profile.currentCtc}`);
+  if (profile.expectedCtc || profile.salaryRange) comp.push(`- Expected CTC / Salary: ${profile.expectedCtc || profile.salaryRange}`);
+  if (profile.noticePeriod) comp.push(`- Notice Period: ${profile.noticePeriod}`);
+  if (profile.earliestStartDate) comp.push(`- Earliest Start Date: ${profile.earliestStartDate}`);
+  if (comp.length > 0) sections.push(`COMPENSATION & AVAILABILITY:\n${comp.join("\n")}`);
+
+  // 4. Education
+  const edu = [];
+  if (profile.degree) edu.push(`- Degree / Major: ${profile.degree}`);
+  if (profile.university) edu.push(`- College / University: ${profile.university}`);
+  if (profile.gradYear) edu.push(`- Graduation Year: ${profile.gradYear}`);
+  if (edu.length > 0) sections.push(`EDUCATION:\n${edu.join("\n")}`);
+
+  // 5. Location & Work Preferences
+  const loc = [];
+  if (profile.location) loc.push(`- Current City/Location: ${profile.location}`);
+  const addressParts = [profile.streetAddress, profile.city, profile.state, profile.zipCode, profile.country].filter(Boolean);
+  if (addressParts.length > 0) loc.push(`- Full Address: ${addressParts.join(", ")}`);
+  if (profile.willingToRelocate !== undefined) loc.push(`- Willing to Relocate: ${profile.willingToRelocate ? "Yes" : "No"}`);
+  if (profile.jobType) {
+    const jobTypes = Array.isArray(profile.jobType) ? profile.jobType.join(", ") : profile.jobType;
+    if (jobTypes) loc.push(`- Preferred Work Modes: ${jobTypes}`);
+  }
+  if (loc.length > 0) sections.push(`LOCATION & WORK PREFERENCES:\n${loc.join("\n")}`);
+
+  // 6. Legal & Eligibility
+  const legal = [];
+  if (profile.workAuthorization !== undefined) legal.push(`- Legally Authorized to Work: ${profile.workAuthorization ? "Yes" : "No"}`);
+  if (profile.visaSponsorship !== undefined) legal.push(`- Requires Visa Sponsorship: ${profile.visaSponsorship ? "Yes" : "No"}`);
+  if (profile.veteranStatus) legal.push(`- Veteran Status: ${profile.veteranStatus}`);
+  if (profile.disabilityStatus) legal.push(`- Disability Status: ${profile.disabilityStatus}`);
+  if (legal.length > 0) sections.push(`LEGAL & ELIGIBILITY:\n${legal.join("\n")}`);
+
+  // 7. Online Profiles & Portfolio
+  const links = [];
+  if (profile.linkedinId) links.push(`- LinkedIn: ${profile.linkedinId}`);
+  if (profile.githubId) links.push(`- GitHub: ${profile.githubId}`);
+  if (profile.portfolioUrl) links.push(`- Portfolio: ${profile.portfolioUrl}`);
+  if (links.length > 0) sections.push(`ONLINE PROFILES & PORTFOLIO:\n${links.join("\n")}`);
+
+  // 8. Motivations & Achievements
+  const motivation = [];
+  if (profile.biggestAchievement) motivation.push(`- Biggest Achievement: ${profile.biggestAchievement}`);
+  if (profile.whyThisRole) motivation.push(`- Why This Role Motivation: ${profile.whyThisRole}`);
+  if (profile.fitnessFrequency) motivation.push(`- Fitness / Routine: ${profile.fitnessFrequency}`);
+  if (motivation.length > 0) sections.push(`MOTIVATION & ACHIEVEMENTS:\n${motivation.join("\n")}`);
+
+  // 9. References
+  if (profile.references && Array.isArray(profile.references) && profile.references.length > 0) {
+    const refLines = profile.references
+      .filter(r => r.name)
+      .map(r => `  * ${r.name} (${r.relation || "Reference"}): ${r.email || ""} ${r.phone || ""}`.trim());
+    if (refLines.length > 0) sections.push(`PROFESSIONAL REFERENCES:\n${refLines.join("\n")}`);
+  }
+
+  // 10. Complete Resume Content
+  const rawResume = profile.resumeText || resumeTextFallback;
+  if (rawResume && rawResume.trim()) {
+    sections.push(`FULL RESUME TEXT:\n"""\n${rawResume.trim()}\n"""`);
+  }
+
+  return sections.join("\n\n");
+}
+
 class ChatGPTController {
   constructor(context) {
     this.context = context;
@@ -181,27 +283,31 @@ class ChatGPTController {
   }
 
   /**
-   * Rates candidate resume against a job role.
+   * Rates candidate resume and full user profile against a job role.
    * Returns: { score: number (0-100), explanation: string }
    */
-  async rateResume(jobInfo, resumeText) {
+  async rateResume(jobInfo, profileOrResume, resumeTextFallback = "") {
+    const candidateContext = formatFullCandidateContext(profileOrResume, resumeTextFallback);
+
     const prompt = `
 You are an expert technical hiring manager and recruitment specialist.
 
-Analyze the candidate's resume and rate how well it matches the target job role on a strict numerical scale from 0 to 100.
-A score strictly ABOVE 90 means the candidate has the relevant skills, experience, and tech stack required for the role.
-A score of 90 or below means there are missing requirements or technology mismatches.
+Analyze the candidate's complete profile and full resume below against the target job role, and rate how well they match on a strict numerical scale from 0 to 100.
+A score strictly ABOVE 90 means the candidate has the relevant skills, experience, tech stack, and background required for the role.
+A score of 90 or below means there are missing requirements, technology mismatches, or insufficient experience.
 
-CANDIDATE RESUME:
-"""
-${resumeText ? resumeText.substring(0, 3000) : "No resume text provided."}
-"""
+============================================================
+CANDIDATE COMPLETE PROFILE & FULL RESUME:
+============================================================
+${candidateContext}
 
+============================================================
 JOB DETAILS:
+============================================================
 - Title: ${jobInfo.title || "Not specified"}
 - Company: ${jobInfo.company || "Not specified"}
 - Location: ${jobInfo.location || "Not specified"}
-${jobInfo.description ? `- Description & Requirements:\n"""\n${jobInfo.description.substring(0, 2000)}\n"""` : ""}
+${jobInfo.description ? `- Description & Requirements:\n"""\n${jobInfo.description.substring(0, 3000)}\n"""` : ""}
 
 TASK:
 Provide your evaluation in this EXACT format:
@@ -245,34 +351,36 @@ REASON: <one short, straightforward sentence explaining why>
    * Asks ChatGPT to answer a job application question straightforwardly.
    */
   async answerQuestion(questionText, options = [], profile = {}, jobContext = {}) {
+    const candidateContext = formatFullCandidateContext(profile);
+
     const prompt = `
 You are helping a candidate answer a job application form question.
 Provide a straightforward, direct answer. Do NOT add pleasantries, greetings, or conversational filler.
 
-CANDIDATE PROFILE:
-- Full Name: ${profile.fullName || "Sumrit Arora"}
-- Current Role: ${profile.currentTitle || profile.role || "Full Stack Developer"}
-- Experience: ${profile.yearsOfExperience || 3} years (${profile.experience || "Mid Level"})
-- Key Technologies: React, Next.js, Node.js, Express, JavaScript, TypeScript, MongoDB, SQL, AWS, Solidity, Rust
-- Availability: Immediate (0 days notice)
-- Work Authorization: Authorized, No visa sponsorship required
-- Resume Snippet: ${profile.resumeText ? profile.resumeText.substring(0, 1000) : ""}
+============================================================
+CANDIDATE COMPLETE PROFILE & FULL RESUME:
+============================================================
+${candidateContext}
 
+============================================================
 JOB CONTEXT:
+============================================================
 - Role: ${jobContext.title || "Software Developer"}
 - Company: ${jobContext.company || "Hiring Company"}
 
+============================================================
 QUESTION:
+============================================================
 "${questionText}"
 
 ${options && options.length > 0 ? `AVAILABLE CHOICES:\n${options.map(o => `- "${o}"`).join('\n')}\n` : ''}
 
 INSTRUCTIONS:
 1. If this is a multiple choice or dropdown question, choose the best matching option from the choices above and output ONLY the exact text of that option.
-2. If this is a numeric question (e.g. years of experience), output ONLY the number (e.g. "3").
+2. If this is a numeric question (e.g. years of experience, current/expected CTC, notice period days, graduation year), output ONLY the number or requested format from the candidate profile.
 3. If this is a Yes/No question, output ONLY "Yes" or "No".
 4. If this is an availability question, answer "Immediate" or "0".
-5. If this is an open-ended question (e.g. why this role, cover letter snippet), write a concise, professional, direct answer (1-2 sentences).
+5. If this is an open-ended question (e.g. why this role, cover letter snippet, biggest achievement), write a concise, professional, direct answer (1-2 sentences) derived directly from the candidate profile and resume.
 6. CRITICAL: Output ONLY the raw final answer with NO introductory text, NO quotes, NO explanation.
 `;
 

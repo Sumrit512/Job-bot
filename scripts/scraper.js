@@ -231,34 +231,30 @@ async function scrapeLinkedIn(role, location) {
     await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(3000);
 
-    // Auto-detect login: check if already logged in
-    let isLoggedIn = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me, nav.global-nav').catch(() => false);
-    
-    if (!isLoggedIn || page.url().includes("login") || page.url().includes("authwall")) {
+    // Auto-detect login: check if already logged in or search results are accessible
+    const currentUrl = page.url();
+    const isAuthwall = currentUrl.includes("/login") || currentUrl.includes("/checkpoint") || currentUrl.includes("/authwall") || currentUrl.includes("/uas/");
+    const hasNavMe = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me, nav.global-nav, img[alt*="photo"], [aria-label*="Me"]').catch(() => false);
+    const hasCards = await page.locator('[componentkey*="job-card"], .jobs-search__results-list, .base-card, .base-search-card, li[data-occludable-job-id]').count().catch(() => 0) > 0;
+
+    let isLoggedIn = !isAuthwall && (hasNavMe || hasCards || currentUrl.includes("/jobs/search"));
+
+    if (!isLoggedIn) {
       console.log("\n⚠️  LinkedIn Login Required for full job search.");
       console.log("👉 Please log in to your LinkedIn account in the browser window.");
       console.log("   (Auto-detecting login for 25s... will proceed automatically once logged in)");
 
       for (let sec = 0; sec < 25; sec++) {
         await page.waitForTimeout(1000);
-        isLoggedIn = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me, nav.global-nav, a[href*="/feed/"]').catch(() => false);
-        if (isLoggedIn) {
+        const urlNow = page.url();
+        const navCheck = await page.isVisible('button[aria-label="Primary Navigation"], .global-nav__me-photo, .nav-item--me, nav.global-nav, img[alt*="photo"], [aria-label*="Me"]').catch(() => false);
+        const cardCheck = await page.locator('[componentkey*="job-card"], .jobs-search__results-list, .base-card, .base-search-card, li[data-occludable-job-id]').count().catch(() => 0) > 0;
+        
+        if (!urlNow.includes("/login") && !urlNow.includes("/authwall") && (navCheck || cardCheck || urlNow.includes("/jobs/search"))) {
           console.log("✅ LinkedIn login confirmed! Continuing search...");
+          isLoggedIn = true;
           break;
         }
-        // Also check if public job results are visible
-        const hasCards = await page.locator('.jobs-search__results-list li, .base-card, .base-search-card, li[data-occludable-job-id]').count().catch(() => 0);
-        if (hasCards > 0 && !page.url().includes("login")) {
-          console.log("ℹ️ Public search results visible. Continuing...");
-          break;
-        }
-      }
-
-      if (!isLoggedIn && (page.url().includes("login") || page.url().includes("authwall"))) {
-        console.log("ℹ️ LinkedIn login not completed. Checking public guest search...");
-        const guestSearchUrl = `https://www.linkedin.com/jobs/search?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}`;
-        await page.goto(guestSearchUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-        await page.waitForTimeout(3000);
       }
     } else {
       console.log("✅ Already logged in to LinkedIn!");
@@ -266,13 +262,15 @@ async function scrapeLinkedIn(role, location) {
 
     // Wait for the results to load
     console.log("Waiting for results...");
+    await page.waitForTimeout(2000);
+
     // Try to click "Easy Apply" filter if available
     try {
-      const easyApplyBtn = page.locator('button.artdeco-pill:has-text("Easy Apply"), button[aria-label="Easy Apply filter"]').first();
-      if (await easyApplyBtn.isVisible({ timeout: 3000 })) {
+      const easyApplyBtn = page.locator('button.artdeco-pill:has-text("Easy Apply"), button[aria-label*="Easy Apply"], button:has-text("Easy Apply")').first();
+      if (await easyApplyBtn.isVisible({ timeout: 2500 })) {
         await easyApplyBtn.click();
         console.log("🖱️ Clicked Easy Apply filter!");
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(2500);
       }
     } catch (e) {}
 
@@ -283,46 +281,93 @@ async function scrapeLinkedIn(role, location) {
 
       const pageJobs = await page.evaluate(async () => {
         const jobMap = new Map();
+
+        // Find scrollable container
         let scrollable = document.querySelector('.jobs-search-results-list') ||
           document.querySelector('.jobs-search-results-display__list') ||
-          document.querySelector('.scaffold-layout__list-container')?.parentElement;
+          document.querySelector('.scaffold-layout__list-container')?.parentElement ||
+          document.querySelector('div[class*="jobs-search"]') ||
+          window;
 
-        if (!scrollable || scrollable === document.body) {
-          const cards = document.querySelectorAll('li[data-occludable-job-id], .job-card-container');
-          if (cards.length > 0) {
-            let current = cards[0];
-            while (current && current !== document.body) {
-              const style = window.getComputedStyle(current);
-              if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-                scrollable = current;
-                break;
-              }
-              current = current.parentElement;
-            }
-          }
-        }
-
-        if (!scrollable) scrollable = window;
-
-        for (let i = 0; i < 15; i++) {
-          const jobLinks = Array.from(document.querySelectorAll('a[href*="/jobs/view/"]'));
-          jobLinks.forEach(link => {
-            const card = link.closest('li, .job-card-container, .base-card');
-            if (!card) return;
-            const url = link.href.split('?')[0];
+        for (let i = 0; i < 10; i++) {
+          // Method 1: Modern LinkedIn 2026 componentkey cards
+          const componentCards = document.querySelectorAll('[componentkey*="job-card"]');
+          componentCards.forEach(c => {
+            const key = c.getAttribute('componentkey') || '';
+            const match = key.match(/job-card-component-ref-(\d+)/);
+            if (!match) return;
+            const jobId = match[1];
+            const url = `https://www.linkedin.com/jobs/view/${jobId}/`;
             if (jobMap.has(url)) return;
-            const text = card.innerText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-            const title = card.querySelector('.job-card-list__title, h3')?.innerText.trim() || text[0];
-            const company = card.querySelector('.job-card-container__primary-description, .job-card-container__company-name')?.innerText.trim() || text[1];
-            const location = card.querySelector('.job-card-container__metadata-item')?.innerText.trim() || text[2];
-            if (title && url.includes('/jobs/view/')) {
-              jobMap.set(url, { title, company, location, url, source: "LinkedIn" });
+
+            const lines = c.innerText.split('\n').map(s => s.trim()).filter(Boolean);
+            const cleanLines = lines.filter(l =>
+              !l.includes('Verified job') &&
+              !l.includes('Selected') &&
+              !l.includes('Viewed') &&
+              !l.includes('Posted') &&
+              !l.includes('ago') &&
+              !l.includes('Easy Apply') &&
+              !l.includes('connection')
+            );
+
+            const title = cleanLines[0] || 'Software Engineer';
+            const company = cleanLines[1] || 'Hiring Company';
+            const loc = cleanLines[2] || 'India';
+
+            jobMap.set(url, {
+              title,
+              company,
+              location: loc,
+              url,
+              source: "LinkedIn",
+              isEasyApply: c.innerText.includes("Easy Apply")
+            });
+          });
+
+          // Method 2: Classic / Links-based cards fallback
+          const links = document.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]');
+          links.forEach(link => {
+            let jobId = null;
+            const viewMatch = link.href.match(/\/jobs\/view\/(\d+)/);
+            const currentMatch = link.href.match(/currentJobId=(\d+)/);
+            if (viewMatch) jobId = viewMatch[1];
+            else if (currentMatch) jobId = currentMatch[1];
+            if (!jobId) return;
+
+            const url = `https://www.linkedin.com/jobs/view/${jobId}/`;
+            if (jobMap.has(url)) return;
+
+            const card = link.closest('li, .job-card-container, .base-card, div[data-job-id]') || link;
+            const titleEl = card.querySelector('.job-card-list__title, h3, a.base-card__full-link');
+            const compEl = card.querySelector('.job-card-container__primary-description, .job-card-container__company-name, .base-search-card__subtitle');
+            const locEl = card.querySelector('.job-card-container__metadata-item, .job-search-card__location');
+
+            const title = titleEl ? titleEl.innerText.trim() : link.innerText.trim().split('\n')[0];
+            const company = compEl ? compEl.innerText.trim() : 'Company';
+            const loc = locEl ? locEl.innerText.trim() : 'Location';
+
+            if (title && title.length > 2 && !title.includes("How promoted") && !title.includes("How AI search")) {
+              jobMap.set(url, {
+                title,
+                company,
+                location: loc,
+                url,
+                source: "LinkedIn",
+                isEasyApply: (card.innerText || '').includes("Easy Apply")
+              });
             }
           });
-          if (scrollable === window) window.scrollBy(0, 600);
-          else scrollable.scrollTop += 500;
-          await new Promise(r => setTimeout(r, 1200));
+
+          // Scroll to load additional jobs in list
+          if (scrollable === window) {
+            window.scrollBy(0, 500);
+          } else {
+            scrollable.scrollTop += 500;
+          }
+          await new Promise(r => setTimeout(r, 800));
         }
+
         return Array.from(jobMap.values());
       });
 
@@ -335,7 +380,7 @@ async function scrapeLinkedIn(role, location) {
           const nextButton = page.locator('button[aria-label^="Page"], button:has-text("Next"), .artdeco-pagination__button--next').first();
           if (await nextButton.isVisible()) {
             await nextButton.click();
-            await page.waitForTimeout(5000); 
+            await page.waitForTimeout(4000); 
           } else {
             console.log("⏹️ No more pages found.");
             break;
@@ -349,14 +394,11 @@ async function scrapeLinkedIn(role, location) {
 
     // Deduplicate jobs by URL in case some overlap between pages
     const uniqueJobs = Array.from(new Map(allFoundJobs.map(j => [j.url, j])).values());
-    console.log(`\n✨ Scraping complete! Total unique jobs found: ${uniqueJobs.length}`);
+    console.log(`\n✨ LinkedIn Scraping complete! Total unique jobs found: ${uniqueJobs.length}`);
     return uniqueJobs;
 
-
-
-
   } catch (err) {
-    console.error("Scraping error:", err.message);
+    console.error("LinkedIn scraping error:", err.message);
     return [];
   } finally {
     await context.close();
@@ -373,6 +415,6 @@ if (require.main === module) {
 module.exports = { 
   scrapeLinkedIn, 
   scrapeNaukri, 
-  // scrapeIndeed, 
+  scrapeIndeed, 
   scrapeInternshala 
 };

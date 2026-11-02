@@ -33,6 +33,7 @@ export const saveResume = mutation({
     university: v.optional(v.string()),
     gradYear: v.optional(v.number()),
     jobType: v.optional(v.array(v.string())),
+    targetPortals: v.optional(v.array(v.string())),
     yearsOfExperience: v.optional(v.number()),
 
     // Geographic Details

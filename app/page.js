@@ -49,6 +49,18 @@ export default function Home() {
   const [expectedCtc, setExpectedCtc] = useState("");
   const [currentCtc, setCurrentCtc] = useState("");
   const [selectedJobTypes, setSelectedJobTypes] = useState(["WFH", "Hybrid"]);
+  const [selectedPortals, setSelectedPortals] = useState(["LinkedIn", "Internshala", "Naukri"]);
+
+  const togglePortal = (portalId) => {
+    setSelectedPortals(prev => {
+      if (prev.includes(portalId)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(p => p !== portalId);
+      } else {
+        return [...prev, portalId];
+      }
+    });
+  };
 
   // NEW: Absolute Automation Fields
   const [streetAddress, setStreetAddress] = useState("");
@@ -136,6 +148,7 @@ export default function Home() {
       setUniversity(p.university || "");
       setGradYear(p.gradYear || 2024);
       setSelectedJobTypes(p.jobType || ["WFH", "Hybrid"]);
+      setSelectedPortals(p.targetPortals && p.targetPortals.length > 0 ? p.targetPortals : ["LinkedIn", "Internshala", "Naukri"]);
       setCurrentCtc(p.currentCtc || "");
       setExpectedCtc(p.expectedCtc || "");
 
@@ -229,6 +242,7 @@ export default function Home() {
         portfolioUrl, noticePeriod, workAuthorization: workAuth, visaSponsorship, 
         currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
         jobType: selectedJobTypes,
+        targetPortals: selectedPortals,
         salaryRange: salary,
         currentCtc, expectedCtc,
         yearsOfExperience: parseInt(experience) || 4,
@@ -274,6 +288,7 @@ export default function Home() {
           portfolioUrl, noticePeriod, workAuthorization: workAuth, visaSponsorship, 
           currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
           jobType: selectedJobTypes,
+          targetPortals: selectedPortals,
           salaryRange: salary,
           currentCtc, expectedCtc,
           yearsOfExperience: parseInt(experience) || 4,
@@ -297,7 +312,7 @@ export default function Home() {
   }, [
     fullName, phone, role, experience, location, linkedinId, githubId, portfolioUrl,
     noticePeriod, workAuth, visaSponsorship, currentCompany, currentTitle, degree,
-    university, gradYear, selectedJobTypes, salary, currentCtc, expectedCtc,
+    university, gradYear, selectedJobTypes, selectedPortals, salary, currentCtc, expectedCtc,
     streetAddress, city, state, zipCode, country, gender, ethnicity, veteranStatus,
     disabilityStatus, pronouns, earliestStartDate, willingToRelocate, whyThisRole,
     biggestAchievement, numberOfProjects, fitnessFrequency, dob, references, resumeText
@@ -688,6 +703,7 @@ export default function Home() {
                       <div className="flex flex-wrap gap-2">
                         {["WFH", "Hybrid", "In-office"].map(type => (
                           <button
+                            type="button"
                             key={type}
                             onClick={() => toggleJobType(type)}
                             className={`px-4 py-2 rounded-xl border text-sm transition-all ${
@@ -700,6 +716,39 @@ export default function Home() {
                           </button>
                         ))}
                       </div>
+                    </div>
+
+                    <div className="pt-4">
+                      <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">Target Job Portals</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: "LinkedIn", label: "LinkedIn", icon: "💼" },
+                          { id: "Internshala", label: "Internshala", icon: "🎓" },
+                          { id: "Naukri", label: "Naukri", icon: "🏢" },
+                          { id: "Indeed", label: "Indeed", icon: "🌐" }
+                        ].map(portal => {
+                          const isSelected = selectedPortals.includes(portal.id);
+                          return (
+                            <button
+                              type="button"
+                              key={portal.id}
+                              onClick={() => togglePortal(portal.id)}
+                              className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all flex items-center gap-2 ${
+                                isSelected
+                                  ? "bg-emerald-500/15 border-emerald-500/80 text-emerald-300 shadow-sm shadow-emerald-500/20"
+                                  : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400"
+                              }`}
+                            >
+                              <span>{portal.icon}</span>
+                              <span>{portal.label}</span>
+                              {isSelected && <CheckCircle2 size={14} className="text-emerald-400" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Select which job platforms the bot will search and apply on.
+                      </p>
                     </div>
                   </div>
 

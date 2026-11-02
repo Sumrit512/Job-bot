@@ -31,13 +31,29 @@ async function runAutomation(agentKeyInput) {
   
   console.log(`✅ Loaded preferences for: ${role} in ${location}`);
 
-  // 2. Scrape Jobs from all platforms
-  const platforms = [
-    { name: "Naukri", scraper: scrapeNaukri },
-    { name: "Internshala", scraper: scrapeInternshala },
-    // { name: "Indeed", scraper: scrapeIndeed },
-    { name: "LinkedIn", scraper: scrapeLinkedIn }
+  // 2. Determine target portals from user preferences
+  const selectedPortals = (prefs.targetPortals && prefs.targetPortals.length > 0)
+    ? prefs.targetPortals.map(p => p.toLowerCase())
+    : ["linkedin", "internshala", "naukri"];
+
+  console.log(`🎯 Active Target Portals: ${selectedPortals.join(", ")}`);
+
+  const allAvailablePlatforms = [
+    { name: "LinkedIn", key: "linkedin", scraper: scrapeLinkedIn },
+    { name: "Internshala", key: "internshala", scraper: scrapeInternshala },
+    { name: "Naukri", key: "naukri", scraper: scrapeNaukri },
+    { name: "Indeed", key: "indeed", scraper: scrapeIndeed }
   ];
+
+  const platforms = allAvailablePlatforms.filter(p => selectedPortals.includes(p.key));
+
+  if (platforms.length === 0) {
+    console.warn("⚠️ No valid target platforms selected. Defaulting to LinkedIn and Internshala.");
+    platforms.push(
+      { name: "LinkedIn", key: "linkedin", scraper: scrapeLinkedIn },
+      { name: "Internshala", key: "internshala", scraper: scrapeInternshala }
+    );
+  }
 
   let allJobs = [];
 

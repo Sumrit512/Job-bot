@@ -36,6 +36,19 @@ async function applyToAllPending(agentKeyInput) {
     return;
   }
 
+  // Filter pending jobs by target portals if specified in preferences
+  let jobsToApply = pendingJobs;
+  if (prefs.targetPortals && prefs.targetPortals.length > 0) {
+    const selectedPortals = prefs.targetPortals.map(p => p.toLowerCase());
+    jobsToApply = pendingJobs.filter(j => selectedPortals.includes((j.source || "").toLowerCase()));
+    console.log(`🎯 Target portals filter: ${selectedPortals.join(", ")} (${jobsToApply.length} of ${pendingJobs.length} jobs match)`);
+  }
+
+  if (jobsToApply.length === 0) {
+    console.log("✅ No pending jobs matching selected target portals.");
+    return;
+  }
+
   const resumeUrl = await client.query("files:getResumeUrl", { agentKey });
   const resumePath = "./resume.txt";
 
@@ -118,7 +131,7 @@ async function applyToAllPending(agentKeyInput) {
   }
 
   try {
-    for (const job of pendingJobs) {
+    for (const job of jobsToApply) {
       console.log(`\n============================================================`);
       console.log(`💼 Processing: ${job.title} at ${job.company}`);
       console.log(`============================================================`);

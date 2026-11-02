@@ -129,11 +129,11 @@ async function applyToAllPending(agentKeyInput) {
 
   await startBrowser();
 
-  // 3. Global Login Check
+  // 3. Login Check strictly for user's selected portals
   try {
-    await checkAllLogins(page);
+    await checkAllLogins(page, targetPortals);
   } catch (e) {
-    console.error("⚠️ Global login check notice:", e.message);
+    console.error("⚠️ Login check notice:", e.message);
   }
 
   try {

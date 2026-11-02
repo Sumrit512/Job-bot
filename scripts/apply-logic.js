@@ -629,48 +629,77 @@ async function answerFormQuestions(page, prefs, chatgpt = null, jobInfo = {}, cl
   }
 }
 
-async function checkAllLogins(page) {
-  const platforms = [
+async function checkAllLogins(page, targetPortals = null) {
+  const allPlatforms = [
     { 
       name: 'LinkedIn', 
+      key: 'linkedin',
       url: 'https://www.linkedin.com/feed/', 
-      markers: ['nav.global-nav', '.nav-item--me'] 
+      checkLogin: async (pg) => {
+        const url = pg.url();
+        if (url.includes('/login') || url.includes('/authwall') || url.includes('/checkpoint') || url.includes('/uas/')) {
+          return false;
+        }
+        const hasMe = await pg.locator('nav.global-nav, .nav-item--me, [aria-label*="Me"], button[aria-label="Primary Navigation"], a[href*="/mynetwork/"], a[href*="/jobs/"], img[alt*="photo"], .global-nav__me-photo').first().isVisible().catch(() => false);
+        const hasFeedContent = await pg.locator('div[data-view-name*="feed"], .feed-shared-update-v2, button:has-text("Start a post"), div.share-box-feed-entry__wrapper').first().isVisible().catch(() => false);
+        return hasMe || hasFeedContent || (url.includes('linkedin.com/feed') && !url.includes('login'));
+      }
     },
     { 
       name: 'Naukri', 
+      key: 'naukri',
       url: 'https://www.naukri.com/', 
-      markers: ['.nI-g_nav-profile', 'a[href*="naukri.com/mnjuser/profile"]'] 
+      checkLogin: async (pg) => {
+        const url = pg.url();
+        if (url.includes('/login') || url.includes('/authwall')) return false;
+        return await pg.locator('.nI-g_nav-profile, a[href*="naukri.com/mnjuser/profile"], .user-profile, .nI-g_nav-profile-wrapper').first().isVisible().catch(() => false);
+      }
     },
-    /*
-    { 
-      name: 'Indeed', 
-      url: 'https://www.indeed.com/', 
-      markers: ['a[href*="/myjobs"]', 'button#PrimaryNav-userProfile', '.gnav-LoggedOutAccountIcon'] 
-    },
-    */
     { 
       name: 'Internshala', 
+      key: 'internshala',
       url: 'https://internshala.com/student/dashboard', 
-      markers: ['.nav-item.profile_container', 'a[href*="/student/dashboard"]'] 
+      checkLogin: async (pg) => {
+        const url = pg.url();
+        if (url.includes('/login') || url.includes('/registration')) return false;
+        return await pg.locator('.nav-item.profile_container, a[href*="/student/dashboard"], #profile_container').first().isVisible().catch(() => false);
+      }
+    },
+    { 
+      name: 'Indeed', 
+      key: 'indeed',
+      url: 'https://www.indeed.com/', 
+      checkLogin: async (pg) => {
+        const url = pg.url();
+        if (url.includes('/auth') || url.includes('/login')) return false;
+        return await pg.locator('a[href*="/myjobs"], button#PrimaryNav-userProfile, [aria-label*="account"], [aria-label*="profile"]').first().isVisible().catch(() => false);
+      }
     }
   ];
 
-  console.log("\n🛡️  Starting Global Login Check...");
+  // Filter platforms strictly based on user's selected target portals
+  const normalizedPortals = targetPortals && targetPortals.length > 0
+    ? targetPortals.map(p => p.toLowerCase().trim())
+    : null;
+
+  const platforms = normalizedPortals
+    ? allPlatforms.filter(p => normalizedPortals.includes(p.key))
+    : allPlatforms.slice(0, 3); // Default fallback to top 3 if none specified
+
+  if (platforms.length === 0) {
+    console.log("ℹ️ No platforms require login verification.");
+    return;
+  }
+
+  console.log(`\n🛡️  Starting Login Verification for selected portals: [${platforms.map(p => p.name).join(", ")}]...`);
+  
   for (const p of platforms) {
     console.log(`🔍 Checking ${p.name}...`);
     try {
       await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000);
 
-      let loggedIn = false;
-      for (const marker of p.markers) {
-        if (await page.isVisible(marker)) {
-          loggedIn = true;
-          break;
-        }
-      }
-
-      // if (p.name === 'Indeed' && await page.isVisible('.gnav-LoggedOutAccountIcon')) loggedIn = false;
+      let loggedIn = await p.checkLogin(page);
 
       if (!loggedIn) {
         console.log(`\n⚠️  NOT LOGGED IN TO ${p.name.toUpperCase()}! ⚠️`);
@@ -679,19 +708,14 @@ async function checkAllLogins(page) {
 
         for (let sec = 0; sec < 30; sec++) {
           await page.waitForTimeout(1000);
-          for (const marker of p.markers) {
-            if (await page.isVisible(marker).catch(() => false)) {
-              loggedIn = true;
-              break;
-            }
-          }
+          loggedIn = await p.checkLogin(page);
           if (loggedIn) break;
         }
 
         if (loggedIn) {
           console.log(`✅ ${p.name} login confirmed!`);
         } else {
-          console.log(`ℹ️ Login not detected for ${p.name}. Proceeding to next check...`);
+          console.log(`ℹ️ Login not detected for ${p.name}. Proceeding...`);
         }
       } else {
         console.log(`✅ Already logged in to ${p.name}.`);
@@ -700,7 +724,7 @@ async function checkAllLogins(page) {
       console.log(`⚠️  Could not verify login for ${p.name}: ${e.message}`);
     }
   }
-  console.log("🚀 All logins verified! Starting applications...\n");
+  console.log("🚀 Login check complete! Starting applications...\n");
   page.sessionAuthenticated = true;
 }
 

@@ -80,6 +80,11 @@ async function runAutomation(agentKeyInput) {
   let existingCount = 0;
   
   for (const job of allJobs) {
+    // For LinkedIn, ensure strictly only Easy Apply jobs are saved
+    if ((job.source || "").toLowerCase().includes("linkedin") && job.isEasyApply === false) {
+      continue;
+    }
+
     try {
       const result = await client.mutation("jobs:addJob", {
         agentKey,

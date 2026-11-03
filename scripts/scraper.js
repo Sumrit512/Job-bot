@@ -214,7 +214,7 @@ async function scrapeInternshala(role, location) {
 }
 
 async function scrapeLinkedIn(role, location) {
-  console.log(`🔍 Searching LinkedIn for ${role} in ${location}...`);
+  console.log(`🔍 Searching LinkedIn for Easy Apply jobs: ${role} in ${location}...`);
 
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -227,7 +227,8 @@ async function scrapeLinkedIn(role, location) {
   await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
 
   try {
-    const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}`;
+    // Note: f_AL=true is LinkedIn's official search parameter for Easy Apply jobs
+    const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}&f_AL=true`;
     await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(3000);
 
@@ -264,13 +265,17 @@ async function scrapeLinkedIn(role, location) {
     console.log("Waiting for results...");
     await page.waitForTimeout(2000);
 
-    // Try to click "Easy Apply" filter if available
+    // Guarantee Easy Apply filter is active on page
     try {
       const easyApplyBtn = page.locator('button.artdeco-pill:has-text("Easy Apply"), button[aria-label*="Easy Apply"], button:has-text("Easy Apply")').first();
-      if (await easyApplyBtn.isVisible({ timeout: 2500 })) {
-        await easyApplyBtn.click();
-        console.log("🖱️ Clicked Easy Apply filter!");
-        await page.waitForTimeout(2500);
+      if (await easyApplyBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+        const isPressed = await easyApplyBtn.getAttribute("aria-checked").catch(() => null) === "true" ||
+                          await easyApplyBtn.getAttribute("aria-pressed").catch(() => null) === "true";
+        if (!isPressed) {
+          await easyApplyBtn.click();
+          console.log("🖱️ Enabled Easy Apply filter on LinkedIn!");
+          await page.waitForTimeout(3000);
+        }
       }
     } catch (e) {}
 
@@ -300,7 +305,16 @@ async function scrapeLinkedIn(role, location) {
             const url = `https://www.linkedin.com/jobs/view/${jobId}/`;
             if (jobMap.has(url)) return;
 
-            const lines = c.innerText.split('\n').map(s => s.trim()).filter(Boolean);
+            const cardText = c.innerText || '';
+            // STRICT: Must be Easy Apply
+            const isEasyApply = cardText.includes("Easy Apply") || 
+              c.querySelector('[aria-label*="Easy Apply"], .job-card-container__apply-method') !== null;
+
+            if (!isEasyApply) {
+              return; // Skip external apply jobs
+            }
+
+            const lines = cardText.split('\n').map(s => s.trim()).filter(Boolean);
             const cleanLines = lines.filter(l =>
               !l.includes('Verified job') &&
               !l.includes('Selected') &&
@@ -321,7 +335,7 @@ async function scrapeLinkedIn(role, location) {
               location: loc,
               url,
               source: "LinkedIn",
-              isEasyApply: c.innerText.includes("Easy Apply")
+              isEasyApply: true
             });
           });
 
@@ -339,6 +353,14 @@ async function scrapeLinkedIn(role, location) {
             if (jobMap.has(url)) return;
 
             const card = link.closest('li, .job-card-container, .base-card, div[data-job-id]') || link;
+            const cardText = card.innerText || '';
+
+            // STRICT: Must be Easy Apply
+            const isEasyApply = cardText.includes("Easy Apply");
+            if (!isEasyApply) {
+              return; // Skip external apply jobs
+            }
+
             const titleEl = card.querySelector('.job-card-list__title, h3, a.base-card__full-link');
             const compEl = card.querySelector('.job-card-container__primary-description, .job-card-container__company-name, .base-search-card__subtitle');
             const locEl = card.querySelector('.job-card-container__metadata-item, .job-search-card__location');
@@ -354,7 +376,7 @@ async function scrapeLinkedIn(role, location) {
                 location: loc,
                 url,
                 source: "LinkedIn",
-                isEasyApply: (card.innerText || '').includes("Easy Apply")
+                isEasyApply: true
               });
             }
           });
@@ -371,7 +393,7 @@ async function scrapeLinkedIn(role, location) {
         return Array.from(jobMap.values());
       });
 
-      console.log(`✅ Page ${pageNum} finished. Found ${pageJobs.length} jobs.`);
+      console.log(`✅ Page ${pageNum} finished. Found ${pageJobs.length} Easy Apply jobs.`);
       allFoundJobs.push(...pageJobs);
 
       if (pageNum < MAX_PAGES) {
@@ -394,7 +416,7 @@ async function scrapeLinkedIn(role, location) {
 
     // Deduplicate jobs by URL in case some overlap between pages
     const uniqueJobs = Array.from(new Map(allFoundJobs.map(j => [j.url, j])).values());
-    console.log(`\n✨ LinkedIn Scraping complete! Total unique jobs found: ${uniqueJobs.length}`);
+    console.log(`\n✨ LinkedIn Scraping complete! Total Easy Apply jobs found: ${uniqueJobs.length}`);
     return uniqueJobs;
 
   } catch (err) {

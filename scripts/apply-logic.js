@@ -780,7 +780,7 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
 
     // 2. Identify and Click initial Apply Button
     let applySelector = '';
-    if (platform === 'LinkedIn') applySelector = '.jobs-apply-button--top-card button, .jobs-apply-button, button:has-text("Easy Apply"), button:has-text("Apply"), a:has-text("Easy Apply"), a:has-text("Apply"), .jobs-s-apply button';
+    if (platform === 'LinkedIn') applySelector = 'button.jobs-apply-button, button:has-text("Easy Apply"), .jobs-apply-button--top-card button:has-text("Easy Apply"), a:has-text("Easy Apply"), .jobs-s-apply button';
     else if (platform === 'Naukri') applySelector = 'button.apply-button, .apply-button-container button, button:has-text("Apply")';
     // else if (platform === 'Indeed') applySelector = 'button#indeedApplyButton, span:has-text("Apply now"), button:has-text("Apply now")';
     else if (platform === 'Internshala') applySelector = '.apply_now_button, button:has-text("Apply now")';
@@ -793,9 +793,12 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
       const allButtons = await page.locator(applySelector).all();
       for (const btn of allButtons) {
         if (await btn.isVisible()) {
-          // Double check it's not a generic sitewide button if it just says 'Apply'
           const text = await btn.innerText().catch(() => "");
           if (text) {
+             // For LinkedIn, strictly verify it's an Easy Apply button
+             if (platform === 'LinkedIn' && !text.toLowerCase().includes("easy apply")) {
+               continue;
+             }
              applyButton = btn;
              isVisible = true;
              break;
@@ -807,13 +810,13 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
     }
     
     if (!isVisible || !applyButton) {
-      console.log(`📸 Apply button not found for ${platform}. Saving debug: debug_${platform.toLowerCase()}_fail.png`);
+      console.log(`📸 Easy Apply button not found for ${platform}. Saving debug: debug_${platform.toLowerCase()}_fail.png`);
       await page.screenshot({ path: `debug_${platform.toLowerCase()}_fail.png` });
       return false;
     }
 
     const buttonText = await applyButton.innerText();
-    console.log(`🖱️  Found ${platform} apply button ("${buttonText.trim()}"). Clicking...`);
+    console.log(`🖱️  Found ${platform} Easy Apply button ("${buttonText.trim()}"). Clicking...`);
     await applyButton.click();
     
     // Special handling for Naukri: give it time to either show a success message or open a chatbot/drawer

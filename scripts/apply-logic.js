@@ -595,7 +595,12 @@ async function answerFormQuestions(page, prefs, chatgpt = null, jobInfo = {}, cl
         
         if ((target && el.label.includes(target)) || (target === "yes" && isConsent)) {
           console.log(`🔘 Clicking ${el.type}: "${el.label || el.text.substring(0, 30)}"`);
-          await locator.click({ force: true });
+          try {
+            await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+            await locator.click({ force: true, timeout: 2000 });
+          } catch (e) {
+            await locator.evaluate(node => { node.checked = true; node.click(); node.dispatchEvent(new Event('change', { bubbles: true })); }).catch(() => {});
+          }
           await page.waitForTimeout(300);
         } else {
           // Ask ChatGPT for non-basic radio/checkbox choice
@@ -609,7 +614,12 @@ async function answerFormQuestions(page, prefs, chatgpt = null, jobInfo = {}, cl
 
           if (aiAnswer && (aiAnswer.toLowerCase().includes('yes') || aiAnswer.toLowerCase().includes('check') || (el.label && (el.label.includes(aiAnswer.toLowerCase()) || aiAnswer.toLowerCase().includes(el.label.toLowerCase()))))) {
             console.log(`✅ ChatGPT matching choice (${el.type}): "${el.label || 'checked'}"`);
-            await locator.click({ force: true });
+            try {
+              await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+              await locator.click({ force: true, timeout: 2000 });
+            } catch (e) {
+              await locator.evaluate(node => { node.checked = true; node.click(); node.dispatchEvent(new Event('change', { bubbles: true })); }).catch(() => {});
+            }
             await page.waitForTimeout(300);
 
             if (client && agentKey) {
@@ -894,75 +904,78 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
         } catch (e) {}
       }
 
-      // 4. Find Navigation Buttons (scoped to active modal/dialog to avoid background matching)
-      const containerSelector = '.jobs-easy-apply-modal, [role="dialog"], .chatbot_Overlay, .side-drawer, .drawer-wrapper, .modal-content, form';
-      
-      const submitSelectorsScoped = [
-        'button:has-text("Submit application")', 'button:has-text("Submit")', 
-        'button:has-text("Finish")', 'button#submit', 'button[aria-label*="Submit"]'
-      ].map(s => `${containerSelector} ${s}`).join(', ');
+      // 4. Find Active Modal/Dialog & Navigation Buttons
+      const activeModal = page.locator('dialog[open], dialog, .jobs-easy-apply-modal, [role="dialog"], .artdeco-modal, .chatbot_Overlay, .side-drawer, .drawer-wrapper').first();
+      const hasModal = await activeModal.isVisible().catch(() => false);
+      const root = hasModal ? activeModal : page;
 
-      const nextSelectorsScoped = [
-        'button:has-text("Next")', 'button:has-text("Continue")', 
-        'button:has-text("Review")', 'button[aria-label*="Next"]',
-        'button[aria-label*="Continue"]', '#continue-button'
-      ].map(s => `${containerSelector} ${s}`).join(', ');
+      // Locate specific action buttons within active dialog
+      const submitButton = root.locator('button:has-text("Submit application"), button[aria-label*="Submit application"], button:has-text("Submit"), button#submit').first();
+      const reviewButton = root.locator('button:has-text("Review"), button[aria-label*="Review your application"]').first();
+      const nextButton = root.locator('button:has-text("Next"), button:has-text("Continue"), button[aria-label*="Continue to next step"], button[aria-label*="next"]').first();
 
-      const doneSelectorsScoped = [
-        'button:has-text("Done")', 'button[aria-label="Dismiss"]', 
-        '.post-apply-icon', 'h2:has-text("Application sent")'
-      ].map(s => `${containerSelector} ${s}`).join(', ');
-
-      let submitButton = page.locator(submitSelectorsScoped).first();
-      let nextButton = page.locator(nextSelectorsScoped).first();
-      let doneButton = page.locator(doneSelectorsScoped).first();
-
-      // Fall back to unscoped selectors if no scoped buttons are visible (excluding background "Apply now" triggers)
-      if (!(await submitButton.isVisible()) && !(await nextButton.isVisible()) && !(await doneButton.isVisible())) {
-        const submitSelectorsUnscoped = [
-          'button:has-text("Submit application")', 'button:has-text("Submit")', 
-          'button:has-text("Finish")', 'button#submit', 'button[aria-label*="Submit"]'
-        ].join(', ');
-        
-        const nextSelectorsUnscoped = [
-          'button:has-text("Next")', 'button:has-text("Continue")', 
-          'button:has-text("Review")', 'button[aria-label*="Next"]',
-          'button[aria-label*="Continue"]', '#continue-button'
-        ].join(', ');
-
-        const doneSelectorsUnscoped = [
-          'button:has-text("Done")', 'button[aria-label="Dismiss"]', 
-          '.post-apply-icon', 'h2:has-text("Application sent")'
-        ].join(', ');
-
-        submitButton = page.locator(submitSelectorsUnscoped).first();
-        nextButton = page.locator(nextSelectorsUnscoped).first();
-        doneButton = page.locator(doneSelectorsUnscoped).first();
-      }
+      const isSubmitVisible = await submitButton.isVisible({ timeout: 500 }).catch(() => false);
+      const isReviewVisible = await reviewButton.isVisible({ timeout: 500 }).catch(() => false);
+      const isNextVisible = await nextButton.isVisible({ timeout: 500 }).catch(() => false);
 
       let currentButton = "";
-      if (await submitButton.isVisible()) currentButton = "Submit";
-      else if (await nextButton.isVisible()) currentButton = await nextButton.innerText();
+      if (isSubmitVisible) currentButton = "Submit";
+      else if (isReviewVisible) currentButton = "Review";
+      else if (isNextVisible) currentButton = "Next";
 
       if (currentButton === lastButtonText && currentButton !== "") {
         repeatCount++;
-        if (repeatCount > 3) { console.log(`⚠️ Stuck on "${currentButton.trim()}". Skipping.`); canProceed = false; break; }
-      } else { repeatCount = 0; lastButtonText = currentButton; }
+        if (repeatCount > 3) { 
+          console.log(`⚠️ Stuck on "${currentButton}". Skipping.`); 
+          canProceed = false; 
+          break; 
+        }
+      } else { 
+        repeatCount = 0; 
+        lastButtonText = currentButton; 
+      }
 
-      if (await submitButton.isVisible()) {
+      if (isSubmitVisible) {
         if (typeof MANUAL_SUBMISSION !== 'undefined' && MANUAL_SUBMISSION) {
           console.log("\n🚨 READY TO SUBMIT! Please review and click ENTER here.");
           await waitForKey();
           applied = true;
         } else {
+          console.log("🚀 Found Submit button. Submitting application...");
           await submitButton.click({ force: true });
-          console.log("✨ Application Submitted!");
-          applied = true;
           await page.waitForTimeout(4000);
+
+          // Verify submission
+          const submittedCheck = await page.evaluate(() => {
+            const body = document.body.innerText || '';
+            return body.includes('Application sent') || 
+                   body.includes('Your application was sent') || 
+                   body.includes('Applied successfully') || 
+                   body.includes('Applied to "') ||
+                   !document.querySelector('dialog[open], [role="dialog"], .jobs-easy-apply-modal');
+          });
+
+          if (submittedCheck) {
+            console.log("✨ Application Submitted successfully!");
+            applied = true;
+            // Dismiss confirmation modal if Done is present
+            const doneBtn = page.locator('dialog button:has-text("Done"), [role="dialog"] button:has-text("Done"), button:has-text("Done")').first();
+            if (await doneBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+              await doneBtn.click().catch(() => {});
+            }
+          } else {
+            console.log("✨ Submit clicked.");
+            applied = true;
+          }
         }
         canProceed = false;
-      } else if (await nextButton.isVisible()) {
-        console.log(`➡️  Clicking Next/Continue...`);
+        break;
+      } else if (isReviewVisible) {
+        console.log("➡️  Clicking Review...");
+        await reviewButton.click({ force: true });
+        await page.waitForTimeout(2000);
+      } else if (isNextVisible) {
+        console.log("➡️  Clicking Next/Continue...");
         await nextButton.click({ force: true });
         await page.waitForTimeout(2000);
         
@@ -971,26 +984,32 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
           return sels.some(s => !!document.querySelector(s)) || document.body.innerText.toLowerCase().includes("please enter a valid answer");
         });
         
-        if (errorVisible) { console.log("⚠️ Validation error on form. Skipping."); canProceed = false; break; }
-      } else if (await doneButton.isVisible()) {
-        console.log("✅ Application confirmed.");
-        applied = true;
-        canProceed = false;
+        if (errorVisible) { 
+          console.log("⚠️ Validation message detected on form. Re-evaluating next step...");
+        }
       } else {
-        if (platform === 'Naukri' && steps === 1) {
-           // Verify if it ACTUALLY applied
-           const bodyText = await page.innerText('body');
-           if (bodyText.includes('Applied successfully') || bodyText.includes('Applied to "') || page.url().includes('applied-successfully')) {
-             console.log("✅ One-tap apply successful.");
-             applied = true;
-           } else {
-             console.log("⏹️  No more steps found, but success message not detected. Marking as skipped for safety.");
-             applied = false;
-           }
+        // Check if application was already submitted
+        const sentNow = await page.evaluate(() => {
+          const body = document.body.innerText || '';
+          return body.includes('Application sent') || body.includes('Your application was sent') || body.includes('Applied successfully');
+        });
+
+        if (sentNow) {
+          console.log("✅ Application confirmed sent!");
+          applied = true;
+          const doneBtn = page.locator('dialog button:has-text("Done"), [role="dialog"] button:has-text("Done"), button:has-text("Done")').first();
+          if (await doneBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await doneBtn.click().catch(() => {});
+          }
         } else {
-           console.log("⏹️  No more steps found.");
+          console.log("⏹️  No more steps or navigation buttons found.");
+          if (platform === 'Naukri' && steps === 1) {
+            const bodyText = await page.innerText('body');
+            applied = bodyText.includes('Applied successfully') || bodyText.includes('Applied to "');
+          }
         }
         canProceed = false;
+        break;
       }
     }
   } catch (err) {
@@ -999,6 +1018,6 @@ async function autoApply(page, jobUrl, resumePath, prefs, chatgpt = null, jobInf
   return applied;
 }
 
-module.exports = { autoApply, checkAllLogins };
+module.exports = { autoApply, checkAllLogins, answerFormQuestions };
 
 

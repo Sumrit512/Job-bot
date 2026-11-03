@@ -28,8 +28,9 @@ async function runAutomation(agentKeyInput) {
 
   const role = prefs.role || "Frontend Developer";
   const location = prefs.location || "Remote";
+  const maxPages = Math.max(1, parseInt(prefs.maxPages) || 1);
   
-  console.log(`✅ Loaded preferences for: ${role} in ${location}`);
+  console.log(`✅ Loaded preferences for: ${role} in ${location} (Max Pages: ${maxPages})`);
 
   // 2. Determine target portals from user preferences
   const selectedPortals = (prefs.targetPortals && prefs.targetPortals.length > 0)
@@ -59,8 +60,8 @@ async function runAutomation(agentKeyInput) {
 
   for (const platform of platforms) {
     try {
-      console.log(`\n--- Scraping ${platform.name} ---`);
-      const platformJobs = await platform.scraper(role, location);
+      console.log(`\n--- Scraping ${platform.name} (up to ${maxPages} page${maxPages > 1 ? "s" : ""}) ---`);
+      const platformJobs = await platform.scraper(role, location, maxPages);
       allJobs.push(...platformJobs);
       // Give Windows OS time to release file lock on .user_data before next platform
       await new Promise(r => setTimeout(r, 1500));

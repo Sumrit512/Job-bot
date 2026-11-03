@@ -32,6 +32,7 @@ export default defineSchema({
     gradYear: v.optional(v.number()),
     jobType: v.optional(v.array(v.string())), // WFH, Hybrid, In-office
     targetPortals: v.optional(v.array(v.string())), // LinkedIn, Internshala, Naukri, Indeed
+    maxPages: v.optional(v.number()), // Number of search pages to scrape per portal
     // Geographic Details
     streetAddress: v.optional(v.string()),
     city: v.optional(v.string()),

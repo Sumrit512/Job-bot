@@ -3,8 +3,8 @@ const path = require("path");
 const readline = require("readline");
 
 // --- CONFIGURATION ---
-// Change this to 5+ to scan more jobs across all platforms.
-const MAX_PAGES = 1; 
+// Default pages to scan across platforms if not specified
+const DEFAULT_MAX_PAGES = 1; 
 // ---------------------
 
 function waitForKey() {
@@ -18,8 +18,8 @@ function waitForKey() {
   }));
 }
 
-async function scrapeNaukri(role, location) {
-  console.log(`🔍 Searching Naukri for ${role} in ${location}...`);
+async function scrapeNaukri(role, location, maxPages = DEFAULT_MAX_PAGES) {
+  console.log(`🔍 Searching Naukri for ${role} in ${location} (up to ${maxPages} page${maxPages > 1 ? 's' : ''})...`);
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
@@ -33,36 +33,55 @@ async function scrapeNaukri(role, location) {
     // Naukri URL structure: naukri.com/role-jobs-in-location
     const cleanRole = role.toLowerCase().replace(/\s+/g, '-');
     const cleanLoc = location.toLowerCase().replace(/\s+/g, '-');
-    const url = `https://www.naukri.com/${cleanRole}-jobs-in-${cleanLoc}`;
-    
-    await page.goto(url, { waitUntil: "load", timeout: 60000 });
-    await page.waitForTimeout(3000);
+    const allFoundJobs = [];
 
-    const jobs = await page.evaluate(() => {
-      const results = [];
-      const cards = document.querySelectorAll('div.srp-jobtuple-wrapper, .cust-job-tuple');
-      cards.forEach(card => {
-        const titleEl = card.querySelector('a.title');
-        const compEl = card.querySelector('a.comp-name');
-        const locEl = card.querySelector('span.locWraper');
-        const applyBtn = card.querySelector('button.apply-button');
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      console.log(`📄 Naukri: Scraping Page ${pageNum}...`);
+      const url = pageNum === 1
+        ? `https://www.naukri.com/${cleanRole}-jobs-in-${cleanLoc}`
+        : `https://www.naukri.com/${cleanRole}-jobs-in-${cleanLoc}-${pageNum}`;
+      
+      await page.goto(url, { waitUntil: "load", timeout: 60000 });
+      await page.waitForTimeout(3000);
 
-        if (titleEl && compEl) {
-          results.push({
-            title: titleEl.innerText.trim(),
-            company: compEl.innerText.trim(),
-            location: locEl ? locEl.innerText.trim() : "Remote",
-            url: titleEl.href.split('?')[0],
-            source: "Naukri",
-            isEasyApply: !!applyBtn
-          });
-        }
+      const pageJobs = await page.evaluate(() => {
+        const results = [];
+        const cards = document.querySelectorAll('div.srp-jobtuple-wrapper, .cust-job-tuple');
+        cards.forEach(card => {
+          const titleEl = card.querySelector('a.title');
+          const compEl = card.querySelector('a.comp-name');
+          const locEl = card.querySelector('span.locWraper');
+          const applyBtn = card.querySelector('button.apply-button');
+
+          if (titleEl && compEl) {
+            results.push({
+              title: titleEl.innerText.trim(),
+              company: compEl.innerText.trim(),
+              location: locEl ? locEl.innerText.trim() : "Remote",
+              url: titleEl.href.split('?')[0],
+              source: "Naukri",
+              isEasyApply: !!applyBtn
+            });
+          }
+        });
+        return results;
       });
-      return results;
-    });
 
-    console.log(`✅ Naukri: Found ${jobs.length} jobs.`);
-    return jobs;
+      console.log(`📄 Naukri Page ${pageNum}: Found ${pageJobs.length} jobs.`);
+      if (pageJobs.length === 0) {
+        console.log("⏹️ No more Naukri jobs found on this page.");
+        break;
+      }
+      allFoundJobs.push(...pageJobs);
+
+      if (pageNum < maxPages) {
+        await page.waitForTimeout(2000);
+      }
+    }
+
+    const uniqueJobs = Array.from(new Map(allFoundJobs.map(j => [j.url, j])).values());
+    console.log(`✅ Naukri: Found ${uniqueJobs.length} total jobs.`);
+    return uniqueJobs;
   } catch (err) {
     console.error("❌ Naukri scraping error:", err.message);
     return [];
@@ -71,8 +90,8 @@ async function scrapeNaukri(role, location) {
   }
 }
 
-async function scrapeIndeed(role, location) {
-  console.log(`🔍 Searching Indeed for ${role} in ${location}...`);
+async function scrapeIndeed(role, location, maxPages = DEFAULT_MAX_PAGES) {
+  console.log(`🔍 Searching Indeed for ${role} in ${location} (up to ${maxPages} page${maxPages > 1 ? 's' : ''})...`);
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
@@ -83,15 +102,14 @@ async function scrapeIndeed(role, location) {
   await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
 
   try {
-    const url = `https://www.indeed.com/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(location)}`;
-    await page.goto(url, { waitUntil: "load", timeout: 60000 });
-    await page.waitForTimeout(4000);
-
     const allFoundJobs = [];
 
-    for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       console.log(`📄 Indeed: Scraping Page ${pageNum}...`);
-      
+      const url = `https://www.indeed.com/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(location)}&start=${(pageNum - 1) * 10}`;
+      await page.goto(url, { waitUntil: "load", timeout: 60000 });
+      await page.waitForTimeout(3500);
+
       const pageJobs = await page.evaluate(() => {
         const results = [];
         const cards = document.querySelectorAll('div.job_seen_beacon');
@@ -115,17 +133,15 @@ async function scrapeIndeed(role, location) {
         return results;
       });
 
+      console.log(`📄 Indeed Page ${pageNum}: Found ${pageJobs.length} jobs.`);
+      if (pageJobs.length === 0) {
+        console.log("⏹️ No more Indeed jobs found on this page.");
+        break;
+      }
       allFoundJobs.push(...pageJobs);
 
-      if (pageNum < MAX_PAGES) {
-        const nextBtn = page.locator('a[aria-label="Next Page"], a[data-testid="pagination-page-next"]').first();
-        if (await nextBtn.isVisible()) {
-          console.log("➡️ Moving to next Indeed page...");
-          await nextBtn.click();
-          await page.waitForTimeout(3000 + Math.random() * 2000);
-        } else {
-          break;
-        }
+      if (pageNum < maxPages) {
+        await page.waitForTimeout(2000 + Math.random() * 1500);
       }
     }
 
@@ -140,8 +156,8 @@ async function scrapeIndeed(role, location) {
   }
 }
 
-async function scrapeInternshala(role, location) {
-  console.log(`🔍 Searching Internshala for ${role}...`);
+async function scrapeInternshala(role, location, maxPages = DEFAULT_MAX_PAGES) {
+  console.log(`🔍 Searching Internshala for ${role} (up to ${maxPages} page${maxPages > 1 ? 's' : ''})...`);
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
@@ -161,50 +177,68 @@ async function scrapeInternshala(role, location) {
     } else if (slug.includes('backend')) {
       slug = 'back-end-development';
     }
-    
-    const url = `https://internshala.com/jobs/${slug}-jobs/`;
-    console.log(`🌐 Navigating to Internshala URL: ${url}`);
-    
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(2500);
-    
-    // Close potential popups
-    try {
-      const closeBtn = page.locator('.close_registration, #close_popup, .ic-24-cross, #close_icon').first();
-      if (await closeBtn.isVisible({ timeout: 3000 })) {
-        await closeBtn.click();
-      }
-    } catch (e) {}
 
-    // Wait for at least one job card to appear
-    await page.waitForSelector('.individual_internship, a[href*="/job/detail/"]', { timeout: 10000 }).catch(() => {
-      console.log("⚠️ Slow loading on Internshala page.");
-    });
+    const allFoundJobs = [];
 
-    const jobs = await page.evaluate(() => {
-      const results = [];
-      const cards = document.querySelectorAll('.individual_internship, .job-container, [id^="individual_internship_"]');
-      cards.forEach(card => {
-        const titleEl = card.querySelector('a[href*="/job/detail/"], .job-title-href, .heading_4_5 a');
-        const compEl = card.querySelector('.company_name a, .company-name a, .company_name, .company-name, .company_and_premium a');
-        const locEl = card.querySelector('.locations, .location_names, #location_names, a[href*="jobs-in-"]');
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      const url = pageNum === 1
+        ? `https://internshala.com/jobs/${slug}-jobs/`
+        : `https://internshala.com/jobs/${slug}-jobs/page-${pageNum}/`;
 
-        if (titleEl && compEl) {
-          results.push({
-            title: titleEl.innerText.trim(),
-            company: compEl.innerText.trim().split('\n')[0].trim(),
-            location: locEl ? locEl.innerText.trim() : "Remote",
-            url: titleEl.href.split('?')[0],
-            source: "Internshala",
-            isEasyApply: true
-          });
+      console.log(`📄 Internshala: Scraping Page ${pageNum} (${url})...`);
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.waitForTimeout(2500);
+
+      // Close potential popups
+      try {
+        const closeBtn = page.locator('.close_registration, #close_popup, .ic-24-cross, #close_icon').first();
+        if (await closeBtn.isVisible({ timeout: 2000 })) {
+          await closeBtn.click();
         }
-      });
-      return results;
-    });
+      } catch (e) {}
 
-    console.log(`✅ Internshala: Found ${jobs.length} jobs.`);
-    return jobs;
+      // Wait for at least one job card to appear
+      await page.waitForSelector('.individual_internship, a[href*="/job/detail/"]', { timeout: 8000 }).catch(() => {
+        console.log("⚠️ Slow loading on Internshala page.");
+      });
+
+      const pageJobs = await page.evaluate(() => {
+        const results = [];
+        const cards = document.querySelectorAll('.individual_internship, .job-container, [id^="individual_internship_"]');
+        cards.forEach(card => {
+          const titleEl = card.querySelector('a[href*="/job/detail/"], .job-title-href, .heading_4_5 a');
+          const compEl = card.querySelector('.company_name a, .company-name a, .company_name, .company-name, .company_and_premium a');
+          const locEl = card.querySelector('.locations, .location_names, #location_names, a[href*="jobs-in-"]');
+
+          if (titleEl && compEl) {
+            results.push({
+              title: titleEl.innerText.trim(),
+              company: compEl.innerText.trim().split('\n')[0].trim(),
+              location: locEl ? locEl.innerText.trim() : "Remote",
+              url: titleEl.href.split('?')[0],
+              source: "Internshala",
+              isEasyApply: true
+            });
+          }
+        });
+        return results;
+      });
+
+      console.log(`📄 Internshala Page ${pageNum}: Found ${pageJobs.length} jobs.`);
+      if (pageJobs.length === 0) {
+        console.log("⏹️ No more Internshala jobs found.");
+        break;
+      }
+      allFoundJobs.push(...pageJobs);
+
+      if (pageNum < maxPages) {
+        await page.waitForTimeout(1500);
+      }
+    }
+
+    const uniqueJobs = Array.from(new Map(allFoundJobs.map(j => [j.url, j])).values());
+    console.log(`✅ Internshala: Found ${uniqueJobs.length} total jobs.`);
+    return uniqueJobs;
   } catch (err) {
     console.error("❌ Internshala scraping error:", err.message);
     return [];
@@ -213,8 +247,8 @@ async function scrapeInternshala(role, location) {
   }
 }
 
-async function scrapeLinkedIn(role, location) {
-  console.log(`🔍 Searching LinkedIn for Easy Apply jobs: ${role} in ${location}...`);
+async function scrapeLinkedIn(role, location, maxPages = DEFAULT_MAX_PAGES) {
+  console.log(`🔍 Searching LinkedIn for Easy Apply jobs: ${role} in ${location} (up to ${maxPages} page${maxPages > 1 ? 's' : ''})...`);
 
   const userDataDir = path.join(__dirname, "../.user_data");
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -281,7 +315,7 @@ async function scrapeLinkedIn(role, location) {
 
     const allFoundJobs = [];
 
-    for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       console.log(`📄 LinkedIn: Scraping Page ${pageNum}...`);
 
       const pageJobs = await page.evaluate(async () => {
@@ -393,23 +427,28 @@ async function scrapeLinkedIn(role, location) {
         return Array.from(jobMap.values());
       });
 
-      console.log(`✅ Page ${pageNum} finished. Found ${pageJobs.length} Easy Apply jobs.`);
+      console.log(`✅ LinkedIn Page ${pageNum} finished. Found ${pageJobs.length} Easy Apply jobs.`);
       allFoundJobs.push(...pageJobs);
 
-      if (pageNum < MAX_PAGES) {
-        console.log("➡️ Moving to next page...");
+      if (pageNum < maxPages) {
+        console.log(`➡️ Moving to LinkedIn page ${pageNum + 1}...`);
+        let moved = false;
         try {
-          const nextButton = page.locator('button[aria-label^="Page"], button:has-text("Next"), .artdeco-pagination__button--next').first();
-          if (await nextButton.isVisible()) {
+          const nextButton = page.locator('button[aria-label="Next"], button:has-text("Next"), .artdeco-pagination__button--next').first();
+          if (await nextButton.isVisible({ timeout: 2000 }).catch(() => false)) {
             await nextButton.click();
-            await page.waitForTimeout(4000); 
-          } else {
-            console.log("⏹️ No more pages found.");
-            break;
+            await page.waitForTimeout(4000);
+            moved = true;
           }
-        } catch (e) {
-          console.log("⏹️ Failed to click next page.");
-          break;
+        } catch (e) {}
+
+        if (!moved) {
+          // Direct navigation fallback using LinkedIn's standard pagination offset (25 jobs per page)
+          const nextStart = pageNum * 25;
+          const nextUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}&f_AL=true&start=${nextStart}`;
+          console.log(`🌐 Navigating directly to LinkedIn Page ${pageNum + 1} (${nextUrl})...`);
+          await page.goto(nextUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+          await page.waitForTimeout(3500);
         }
       }
     }

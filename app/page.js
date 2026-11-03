@@ -50,6 +50,7 @@ export default function Home() {
   const [currentCtc, setCurrentCtc] = useState("");
   const [selectedJobTypes, setSelectedJobTypes] = useState(["WFH", "Hybrid"]);
   const [selectedPortals, setSelectedPortals] = useState(["LinkedIn", "Internshala", "Naukri"]);
+  const [maxPages, setMaxPages] = useState(1);
 
   const togglePortal = (portalId) => {
     setSelectedPortals(prev => {
@@ -149,6 +150,7 @@ export default function Home() {
       setGradYear(p.gradYear || 2024);
       setSelectedJobTypes(p.jobType || ["WFH", "Hybrid"]);
       setSelectedPortals(p.targetPortals && p.targetPortals.length > 0 ? p.targetPortals : ["LinkedIn", "Internshala", "Naukri"]);
+      setMaxPages(p.maxPages || 1);
       setCurrentCtc(p.currentCtc || "");
       setExpectedCtc(p.expectedCtc || "");
 
@@ -243,6 +245,7 @@ export default function Home() {
         currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
         jobType: selectedJobTypes,
         targetPortals: selectedPortals,
+        maxPages: parseInt(maxPages) || 1,
         salaryRange: salary,
         currentCtc, expectedCtc,
         yearsOfExperience: parseInt(experience) || 4,
@@ -289,6 +292,7 @@ export default function Home() {
           currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
           jobType: selectedJobTypes,
           targetPortals: selectedPortals,
+          maxPages: parseInt(maxPages) || 1,
           salaryRange: salary,
           currentCtc, expectedCtc,
           yearsOfExperience: parseInt(experience) || 4,
@@ -312,7 +316,7 @@ export default function Home() {
   }, [
     fullName, phone, role, experience, location, linkedinId, githubId, portfolioUrl,
     noticePeriod, workAuth, visaSponsorship, currentCompany, currentTitle, degree,
-    university, gradYear, selectedJobTypes, selectedPortals, salary, currentCtc, expectedCtc,
+    university, gradYear, selectedJobTypes, selectedPortals, maxPages, salary, currentCtc, expectedCtc,
     streetAddress, city, state, zipCode, country, gender, ethnicity, veteranStatus,
     disabilityStatus, pronouns, earliestStartDate, willingToRelocate, whyThisRole,
     biggestAchievement, numberOfProjects, fitnessFrequency, dob, references, resumeText
@@ -337,6 +341,7 @@ export default function Home() {
             currentCompany, currentTitle, degree, university, gradYear: parseInt(gradYear) || 2024,
             jobType: selectedJobTypes,
             targetPortals: selectedPortals,
+            maxPages: parseInt(maxPages) || 1,
             salaryRange: salary,
             currentCtc, expectedCtc,
             yearsOfExperience: parseInt(experience) || 4,
@@ -371,14 +376,14 @@ export default function Home() {
   return (
     <div className="space-y-8 animate-in fade-in duration-700 min-h-screen pb-20 px-4 md:px-8">
       {/* Quick Portal Selection Bar */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 backdrop-blur-sm mt-4">
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 backdrop-blur-sm mt-4">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20 text-emerald-400">
             <Globe size={20} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white tracking-wide">Target Job Portals</h2>
+              <h2 className="text-sm font-bold text-white tracking-wide">Target Job Portals & Search Depth</h2>
               <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 Active Filter
               </span>
@@ -386,35 +391,64 @@ export default function Home() {
             <p className="text-xs text-slate-400">The agent will strictly search and apply ONLY on these chosen platforms:</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {[
-            { id: "LinkedIn", label: "LinkedIn", icon: "💼" },
-            { id: "Internshala", label: "Internshala", icon: "🎓" },
-            { id: "Naukri", label: "Naukri", icon: "🏢" },
-            { id: "Indeed", label: "Indeed", icon: "🌐" }
-          ].map(portal => {
-            const isSelected = selectedPortals.includes(portal.id);
-            return (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { id: "LinkedIn", label: "LinkedIn", icon: "💼" },
+              { id: "Internshala", label: "Internshala", icon: "🎓" },
+              { id: "Naukri", label: "Naukri", icon: "🏢" },
+              { id: "Indeed", label: "Indeed", icon: "🌐" }
+            ].map(portal => {
+              const isSelected = selectedPortals.includes(portal.id);
+              return (
+                <button
+                  type="button"
+                  key={portal.id}
+                  onClick={() => togglePortal(portal.id)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? "bg-emerald-500/15 border-emerald-500/80 text-emerald-300 shadow-sm shadow-emerald-500/20"
+                      : "bg-slate-950/80 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400"
+                  }`}
+                >
+                  <span>{portal.icon}</span>
+                  <span>{portal.label}</span>
+                  {isSelected ? (
+                    <CheckCircle2 size={13} className="text-emerald-400 ml-0.5" />
+                  ) : (
+                    <span className="w-2 h-2 rounded-full border border-slate-700 ml-0.5"></span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1.5 border-t lg:border-t-0 lg:border-l border-slate-800 pt-2 lg:pt-0 lg:pl-3">
+            <span className="text-xs text-slate-400 font-medium">Pages:</span>
+            {[1, 2, 3, 5].map(num => (
               <button
                 type="button"
-                key={portal.id}
-                onClick={() => togglePortal(portal.id)}
-                className={`px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer ${
-                  isSelected
-                    ? "bg-emerald-500/15 border-emerald-500/80 text-emerald-300 shadow-sm shadow-emerald-500/20"
-                    : "bg-slate-950/80 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400"
+                key={num}
+                onClick={() => setMaxPages(num)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  parseInt(maxPages) === num
+                    ? "bg-blue-600 text-white shadow-sm shadow-blue-500/20"
+                    : "bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white"
                 }`}
               >
-                <span>{portal.icon}</span>
-                <span>{portal.label}</span>
-                {isSelected ? (
-                  <CheckCircle2 size={14} className="text-emerald-400 ml-0.5" />
-                ) : (
-                  <span className="w-2.5 h-2.5 rounded-full border border-slate-700 ml-0.5"></span>
-                )}
+                {num}
               </button>
-            );
-          })}
+            ))}
+            <input
+              type="number"
+              min="1"
+              max="20"
+              value={maxPages}
+              onChange={(e) => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-12 px-1.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs text-center text-white focus:outline-none focus:border-blue-500 font-bold"
+              title="Number of search pages to scrape per portal"
+            />
+          </div>
         </div>
       </div>
 
@@ -826,6 +860,45 @@ export default function Home() {
                       </div>
                       <p className="text-xs text-slate-500 mt-2">
                         Select which job platforms the bot will search and apply on.
+                      </p>
+                    </div>
+
+                    <div className="pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Pages to Scrape per Portal</h3>
+                        <span className="text-xs text-blue-400 font-semibold bg-blue-500/10 px-2.5 py-0.5 rounded-full border border-blue-500/20">
+                          {maxPages} Page{maxPages > 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {[1, 2, 3, 5, 10].map(num => (
+                          <button
+                            type="button"
+                            key={num}
+                            onClick={() => setMaxPages(num)}
+                            className={`px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
+                              parseInt(maxPages) === num
+                                ? "bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-500/20 font-bold"
+                                : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                            }`}
+                          >
+                            {num} {num === 1 ? "Page (Fast)" : "Pages"}
+                          </button>
+                        ))}
+                        <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5">
+                          <span className="text-xs text-slate-500">Custom:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="25"
+                            value={maxPages}
+                            onChange={(e) => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-14 bg-transparent text-sm text-white font-bold text-center focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Controls how many pages the scraper will scan on each selected job portal (e.g. LinkedIn, Internshala, etc.).
                       </p>
                     </div>
                   </div>

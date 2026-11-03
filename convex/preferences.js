@@ -38,6 +38,7 @@ export const savePreferences = mutation({
     gradYear: v.optional(v.number()),
     jobType: v.optional(v.array(v.string())),
     targetPortals: v.optional(v.array(v.string())),
+    maxPages: v.optional(v.number()),
     yearsOfExperience: v.optional(v.number()),
 
     // Geographic Details

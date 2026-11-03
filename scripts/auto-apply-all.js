@@ -176,37 +176,55 @@ async function applyToAllPending(agentKeyInput) {
         }, prefs);
 
         console.log(`📊 Rating Result: Score = ${rating.score}/100`);
+        if (rating.missingSkills && rating.missingSkills.length > 0) {
+          console.log(`💡 Missing Skills to increase score: ${rating.missingSkills.join(", ")}`);
+        }
         console.log(`📝 Reason: ${rating.explanation}`);
 
-        // Step 3: Check score threshold (> 90 required to apply)
-        if (rating.score <= 90) {
-          console.log(`⏭️  Resume match score (${rating.score}/100) is <= 90. SKIPPING application.`);
-          await client.mutation("jobs:updateJobStatus", {
-            agentKey,
-            id: job._id,
-            status: "skipped",
-            error: `ChatGPT Match Score: ${rating.score}/100 (Threshold > 90 required). ${rating.explanation}`
-          });
-          continue;
-        }
-
-        console.log(`🎯 Match score (${rating.score}/100) is ABOVE 90! Proceeding to auto-apply...`);
-        await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "applying" });
+        // Step 3: Record ATS rating & apply to job regardless of score
+        console.log(`🎯 Applying to "${job.title}" at "${job.company}" regardless of ATS score (${rating.score}/100)...`);
+        await client.mutation("jobs:updateJobStatus", { 
+          agentKey, 
+          id: job._id, 
+          status: "applying",
+          score: rating.score,
+          missingSkills: rating.missingSkills || [],
+          atsFeedback: rating.explanation
+        });
 
         // Step 4: Run auto-apply with ChatGPT answering non-basic questions
         await page.bringToFront();
         const success = await autoApply(page, job.url, resumePath, prefs, chatgpt, job, client, agentKey);
 
         if (success) {
-          await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "applied" });
+          await client.mutation("jobs:updateJobStatus", { 
+            agentKey, 
+            id: job._id, 
+            status: "applied",
+            score: rating.score,
+            missingSkills: rating.missingSkills || [],
+            atsFeedback: rating.explanation
+          });
           console.log(`✅ Successfully applied to ${job.title}!`);
         } else {
-          await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "skipped" });
+          await client.mutation("jobs:updateJobStatus", { 
+            agentKey, 
+            id: job._id, 
+            status: "skipped",
+            score: rating.score,
+            missingSkills: rating.missingSkills || [],
+            atsFeedback: rating.explanation
+          });
           console.log(`ℹ️  Skipped ${job.title}`);
         }
       } catch (e) {
         console.error(`❌ Failed processing ${job.title}:`, e.message);
-        await client.mutation("jobs:updateJobStatus", { agentKey, id: job._id, status: "failed", error: e.message });
+        await client.mutation("jobs:updateJobStatus", { 
+          agentKey, 
+          id: job._id, 
+          status: "failed", 
+          error: e.message 
+        });
         
         if (e.message.includes('browser has been closed') || e.message.includes('Target closed') || e.message.includes('context or browser has been closed')) {
            console.log("⚠️ Browser session closed. Resetting context reference...");

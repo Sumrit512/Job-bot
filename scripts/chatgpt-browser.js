@@ -284,7 +284,8 @@ class ChatGPTController {
 
   /**
    * Rates candidate resume and full user profile against a job role.
-   * Returns: { score: number (0-100), explanation: string }
+   * Also extracts a list of missing skills/keywords that could increase the ATS score.
+   * Returns: { score: number (0-100), missingSkills: string[], explanation: string }
    */
   async rateResume(jobInfo, profileOrResume, resumeTextFallback = "") {
     const candidateContext = formatFullCandidateContext(profileOrResume, resumeTextFallback);
@@ -292,9 +293,9 @@ class ChatGPTController {
     const prompt = `
 You are an expert technical hiring manager and recruitment specialist.
 
-Analyze the candidate's complete profile and full resume below against the target job role, and rate how well they match on a strict numerical scale from 0 to 100.
-A score strictly ABOVE 90 means the candidate has the relevant skills, experience, tech stack, and background required for the role.
-A score of 90 or below means there are missing requirements, technology mismatches, or insufficient experience.
+Analyze the candidate's complete profile and full resume below against the target job role.
+1. Rate how well they match on a numerical scale from 0 to 100.
+2. Note down a list of missing skills, qualifications, or technologies that the candidate lacks for this role and that would increase their score.
 
 ============================================================
 CANDIDATE COMPLETE PROFILE & FULL RESUME:
@@ -312,27 +313,41 @@ ${jobInfo.description ? `- Description & Requirements:\n"""\n${jobInfo.descripti
 TASK:
 Provide your evaluation in this EXACT format:
 SCORE: <number between 0 and 100>
-REASON: <one short, straightforward sentence explaining why>
+MISSING_SKILLS: <comma-separated list of missing skills/technologies/qualifications that can increase the score, or "None">
+REASON: <one short, straightforward sentence explaining why and how to improve>
 `;
 
-    console.log(`\n🧠 Asking ChatGPT to rate resume for "${jobInfo.title}" at "${jobInfo.company}"...`);
+    console.log(`\n🧠 Asking ChatGPT to rate resume & identify missing skills for "${jobInfo.title}" at "${jobInfo.company}"...`);
     const rawResponse = await this.sendPrompt(prompt);
 
     if (!rawResponse) {
       console.warn("⚠️ Could not get rating from ChatGPT. Defaulting score to 85.");
-      return { score: 85, explanation: "ChatGPT web response unavailable." };
+      return { score: 85, missingSkills: [], explanation: "ChatGPT web response unavailable." };
     }
 
     console.log(`💬 ChatGPT Evaluation:\n${rawResponse}\n`);
 
     // Parse SCORE: XX
-    let score = 0;
+    let score = 80;
     const scoreMatch = rawResponse.match(/SCORE:\s*(\d{1,3})/i) || rawResponse.match(/(\d{1,3})\s*\/\s*100/);
     if (scoreMatch) {
-      score = parseInt(scoreMatch[1], 10);
+      score = Math.min(100, Math.max(0, parseInt(scoreMatch[1], 10)));
     } else {
       const anyNum = rawResponse.match(/\b([1-9]?\d|100)\b/);
-      if (anyNum) score = parseInt(anyNum[1], 10);
+      if (anyNum) score = Math.min(100, Math.max(0, parseInt(anyNum[1], 10)));
+    }
+
+    // Parse MISSING_SKILLS: skill1, skill2...
+    let missingSkills = [];
+    const skillsMatch = rawResponse.match(/MISSING_SKILLS:\s*([^\n\r]+)/i);
+    if (skillsMatch) {
+      const rawSkills = skillsMatch[1].trim();
+      if (!/^none$/i.test(rawSkills) && !/^n\/a$/i.test(rawSkills) && !/^nil$/i.test(rawSkills)) {
+        missingSkills = rawSkills
+          .split(/[,;•|]/)
+          .map(s => s.replace(/^[-*•\d.]+\s*/, '').trim())
+          .filter(s => s.length > 1 && !/^none$/i.test(s));
+      }
     }
 
     // Parse REASON
@@ -341,10 +356,14 @@ REASON: <one short, straightforward sentence explaining why>
     if (reasonMatch) {
       explanation = reasonMatch[1].trim();
     } else {
-      explanation = rawResponse.replace(/SCORE:\s*\d+/i, '').trim().substring(0, 150);
+      explanation = rawResponse
+        .replace(/SCORE:\s*\d+/i, '')
+        .replace(/MISSING_SKILLS:[^\n]+/i, '')
+        .trim()
+        .substring(0, 150);
     }
 
-    return { score, explanation };
+    return { score, missingSkills, explanation };
   }
 
   /**

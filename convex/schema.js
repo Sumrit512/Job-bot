@@ -82,6 +82,9 @@ export default defineSchema({
     url: v.string(),
     error: v.optional(v.string()),
     appliedAt: v.optional(v.number()),
+    score: v.optional(v.number()),
+    missingSkills: v.optional(v.array(v.string())),
+    atsFeedback: v.optional(v.string()),
   }).index("by_userId_and_status", ["userId", "status"]),
 
   agent_status: defineTable({

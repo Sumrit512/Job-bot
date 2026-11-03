@@ -53,6 +53,9 @@ export const updateJobStatus = mutation({
     id: v.id("jobs"),
     status: v.string(),
     error: v.optional(v.string()),
+    score: v.optional(v.number()),
+    missingSkills: v.optional(v.array(v.string())),
+    atsFeedback: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { agentKey, id, ...updates } = args;
@@ -64,10 +67,15 @@ export const updateJobStatus = mutation({
       throw new Error("Unauthorized: You do not own this job record.");
     }
 
-    await ctx.db.patch(id, {
+    const patchData = {
       ...updates,
-      appliedAt: updates.status === "applied" ? Date.now() : undefined,
+      appliedAt: updates.status === "applied" ? Date.now() : job.appliedAt,
+    };
+    Object.keys(patchData).forEach((key) => {
+      if (patchData[key] === undefined) delete patchData[key];
     });
+
+    await ctx.db.patch(id, patchData);
   },
 });
 

@@ -1047,31 +1047,70 @@ export default function Home() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-950/50 text-slate-500 text-[10px] uppercase font-bold tracking-widest border-b border-slate-800">
-                <th className="px-8 py-5">Job Details</th>
-                <th className="px-8 py-5">Company</th>
-                <th className="px-8 py-5 text-center">Status</th>
-                <th className="px-8 py-5 text-right">Action</th>
+                <th className="px-6 py-5">Job Details</th>
+                <th className="px-6 py-5">Company</th>
+                <th className="px-6 py-5">ATS Score & Missing Skills</th>
+                <th className="px-6 py-5 text-center">Status</th>
+                <th className="px-6 py-5 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
               {jobs?.map((job) => (
                 <tr key={job._id} className="hover:bg-slate-800/20 transition-all group">
-                  <td className="px-8 py-4">
+                  <td className="px-6 py-4">
                     <div className="font-semibold text-slate-200 group-hover:text-blue-400 transition-colors">{job.title}</div>
                     <div className="text-[10px] text-slate-500 uppercase mt-1 tracking-tight">{job.location} • {job.source}</div>
                   </td>
-                  <td className="px-8 py-4 text-sm text-slate-400 font-medium">{job.company}</td>
-                  <td className="px-8 py-4 text-center">
+                  <td className="px-6 py-4 text-sm text-slate-400 font-medium">{job.company}</td>
+                  <td className="px-6 py-4 max-w-xs">
+                    {job.score !== undefined ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-bold ${
+                            job.score >= 80 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                            job.score >= 60 ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                            "bg-red-500/10 text-red-400 border border-red-500/20"
+                          }`}>
+                            Score: {job.score}/100
+                          </span>
+                        </div>
+                        {job.missingSkills && job.missingSkills.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-[10px] text-slate-400 font-medium">Missing:</span>
+                            {job.missingSkills.slice(0, 4).map((skill, idx) => (
+                              <span key={idx} className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                                {skill}
+                              </span>
+                            ))}
+                            {job.missingSkills.length > 4 && (
+                              <span className="text-[10px] text-slate-500">+{job.missingSkills.length - 4} more</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-emerald-400/80">✨ All primary skills matched</span>
+                        )}
+                        {job.atsFeedback && (
+                          <p className="text-[10px] text-slate-500 line-clamp-1 italic" title={job.atsFeedback}>
+                            {job.atsFeedback}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-600 italic">Pending analysis</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-center">
                     <span className={`inline-flex px-3 py-1 rounded-lg text-[10px] font-bold uppercase border ${
                       job.status === "applied" ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-500" :
                       job.status === "failed" ? "bg-red-500/5 border-red-500/20 text-red-500" :
                       job.status === "skipped" ? "bg-blue-500/5 border-blue-500/20 text-blue-500" :
+                      job.status === "applying" ? "bg-purple-500/10 border-purple-500/30 text-purple-400 animate-pulse" :
                       "bg-amber-500/5 border-amber-500/20 text-amber-500"
                     }`}>
                       {job.status}
                     </span>
                   </td>
-                  <td className="px-8 py-4 text-right">
+                  <td className="px-6 py-4 text-right">
                     <a href={job.url} target="_blank" className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all border border-slate-700">
                       View <Play size={10} />
                     </a>
@@ -1080,7 +1119,7 @@ export default function Home() {
               ))}
               {(!jobs || jobs.length === 0) && (
                 <tr>
-                  <td colSpan="4" className="px-8 py-20 text-center text-slate-600 font-medium italic">
+                  <td colSpan="5" className="px-8 py-20 text-center text-slate-600 font-medium italic">
                     Discovery scan complete. No jobs found in this cycle.
                   </td>
                 </tr>
